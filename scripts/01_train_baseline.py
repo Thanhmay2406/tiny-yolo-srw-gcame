@@ -16,7 +16,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--data",
-        default="data/YOLO_format/data.yaml",
+        default="/kaggle/input/datasets/thanhmay2406/datasettop/YOLO_format/data.yaml",
         help="Path to the dataset YAML file.",
     )
     parser.add_argument(
