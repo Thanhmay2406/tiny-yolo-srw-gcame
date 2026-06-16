@@ -30,12 +30,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42, help="Random seed.")
     parser.add_argument(
         "--run-name",
+        default="train_baseline",
         required=True,
         help="Experiment run name. Outputs are saved under experiments/<run_name>/.",
     )
     parser.add_argument(
         "--device",
-        default=None,
+        default=0,
         help="Optional Ultralytics device override, for example '0' or 'cpu'.",
     )
     return parser.parse_args()
