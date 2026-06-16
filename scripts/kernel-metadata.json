@@ -1,0 +1,16 @@
+{
+  "id": "thanhmay2406/kaggle-notebook",
+  "title": "kaggle notebook",
+  "code_file": "01_train_baseline.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
+  "enable_internet": "true",
+  "machine_shape": "",
+  "dataset_sources": ["thanhmay2406/datasettop"],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}
