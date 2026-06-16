@@ -25,6 +25,7 @@ def parse_args() -> argparse.Namespace:
         help="Ultralytics model name or checkpoint path.",
     )
     parser.add_argument("--epochs", type=int, default=100, help="Number of epochs.")
+    parser.add_argument("--patience", type=int, default=20, help="early stopping")
     parser.add_argument("--imgsz", type=int, default=640, help="Training image size.")
     parser.add_argument("--batch", type=int, default=16, help="Training batch size.")
     parser.add_argument("--seed", type=int, default=42, help="Random seed.")
@@ -88,6 +89,7 @@ def build_train_config(args: argparse.Namespace, experiment_dir: Path) -> dict[s
         "data": str(data_path),
         "model": args.model,
         "epochs": args.epochs,
+        "patience": args.patience,
         "imgsz": args.imgsz,
         "batch": args.batch,
         "seed": args.seed,
@@ -106,6 +108,7 @@ def build_train_kwargs(train_config: dict[str, Any]) -> dict[str, Any]:
     allowed_keys = {
         "data",
         "epochs",
+        "patience",
         "imgsz",
         "batch",
         "seed",

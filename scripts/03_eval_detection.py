@@ -1,7 +1,5 @@
 """Evaluate a trained Ultralytics YOLO detector and save experiment metrics."""
 
-from __future__ import annotations
-
 import argparse
 import json
 from pathlib import Path
@@ -26,20 +24,20 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--data",
-        default="data/YOLO_format/data.yaml",
+        default="/kaggle/input/datasets/thanhmay2406/datasettop/YOLO_format/data.yaml",
         help="Path to the dataset YAML file.",
     )
     parser.add_argument(
         "--split",
         choices=("auto", "val", "test"),
-        default="auto",
+        default="test",
         help="Dataset split to evaluate. 'auto' prefers test when available, otherwise val.",
     )
     parser.add_argument("--imgsz", type=int, default=640, help="Evaluation image size.")
     parser.add_argument("--batch", type=int, default=16, help="Evaluation batch size.")
     parser.add_argument(
         "--device",
-        default=None,
+        default=0,
         help="Optional Ultralytics device override, for example '0' or 'cpu'.",
     )
     parser.add_argument(
@@ -55,7 +53,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--visualize-split",
         choices=("same", "val", "test"),
-        default="same",
+        default="test",
         help="Split to use for prediction visualizations when --visualize is enabled.",
     )
     parser.add_argument(
