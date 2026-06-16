@@ -30,7 +30,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42, help="Random seed.")
     parser.add_argument(
         "--run-name",
-        default="train_baseline",
         required=True,
         help="Experiment run name. Outputs are saved under experiments/<run_name>/.",
     )
@@ -50,8 +49,8 @@ def resolve_repo_path(path_str: str) -> Path:
     return (REPO_ROOT / path).resolve()
 
 
-def ensure_dataset_yaml(data_path: Path) -> Path:
-    """Ensure the dataset YAML uses a repository-local dataset root."""
+def prepare_dataset_yaml(data_path: Path, output_path: Path) -> Path:
+    """Create a writable dataset YAML with a resolved dataset root."""
     if not data_path.exists():
         raise FileNotFoundError(f"Dataset YAML not found: {data_path}")
 
@@ -69,19 +68,22 @@ def ensure_dataset_yaml(data_path: Path) -> Path:
             configured_path = (REPO_ROOT / configured_path).resolve()
         if configured_path != dataset_root:
             data_config["path"] = str(dataset_root)
-            with data_path.open("w", encoding="utf-8") as handle:
-                yaml.safe_dump(data_config, handle, sort_keys=False)
     else:
         data_config["path"] = str(dataset_root)
-        with data_path.open("w", encoding="utf-8") as handle:
-            yaml.safe_dump(data_config, handle, sort_keys=False)
 
-    return data_path
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8") as handle:
+        yaml.safe_dump(data_config, handle, sort_keys=False)
+
+    return output_path
 
 
 def build_train_config(args: argparse.Namespace, experiment_dir: Path) -> dict[str, Any]:
     """Build the resolved training configuration saved for reproducibility."""
-    data_path = ensure_dataset_yaml(resolve_repo_path(args.data))
+    data_path = prepare_dataset_yaml(
+        resolve_repo_path(args.data),
+        experiment_dir / "resolved_data.yaml",
+    )
     config: dict[str, Any] = {
         "data": str(data_path),
         "model": args.model,
