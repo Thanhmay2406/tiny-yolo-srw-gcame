@@ -1,0 +1,15 @@
+name: skyfusion
+kaggle_slug: thanhmay2406/dataset-for-research
+source_root: /kaggle/input/datasets/thanhmay2406/dataset-for-research/SkyFusion
+converted_root: /kaggle/working/data/SkyFusion_yolo_reconverted
+yolo_data_yaml: /kaggle/input/datasets/thanhmay2406/dataset-for-research/SkyFusion_yolo/data.yaml
+expected_format: coco_and_yolo
+splits:
+  - train
+  - valid
+  - test
+num_classes: 3
+names:
+  - Aircraft
+  - ship
+  - vehicle

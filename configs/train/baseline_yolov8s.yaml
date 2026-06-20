@@ -1,0 +1,13 @@
+data: /kaggle/input/datasets/thanhmay2406/dataset-for-research/SkyFusion_yolo/data.yaml
+model: yolov8s.pt
+epochs: 100
+imgsz: 640
+batch: 16
+seed: 0
+device: null
+workers: null
+run_name: baseline_yolov8s
+output_root: experiments/skyfusion
+visualize_samples: 8
+visualize_split: val
+visualize_conf: 0.25

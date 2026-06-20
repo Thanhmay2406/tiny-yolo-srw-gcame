@@ -1,0 +1,66 @@
+{
+  "/home/thanhmay/workspace/tiny-yolo-srw-gcame/data": {
+    "format_detection": {
+      "coco_json_files": [
+        "/home/thanhmay/workspace/tiny-yolo-srw-gcame/data/SkyFusion/test/_annotations.coco.json",
+        "/home/thanhmay/workspace/tiny-yolo-srw-gcame/data/SkyFusion/train/_annotations.coco.json",
+        "/home/thanhmay/workspace/tiny-yolo-srw-gcame/data/SkyFusion/valid/_annotations.coco.json"
+      ],
+      "format": "coco",
+      "yolo_images_dir": null,
+      "yolo_label_file_count": 0,
+      "yolo_labels_dir": null
+    },
+    "summary": {
+      "extensions": {
+        ".jpg": 12025,
+        ".json": 4,
+        ".sh": 1,
+        ".txt": 9034,
+        ".yaml": 2
+      },
+      "root": "/home/thanhmay/workspace/tiny-yolo-srw-gcame/data",
+      "total_files": 21066
+    }
+  },
+  "/home/thanhmay/workspace/tiny-yolo-srw-gcame/data/SkyFusion": {
+    "format_detection": {
+      "coco_json_files": [
+        "/home/thanhmay/workspace/tiny-yolo-srw-gcame/data/SkyFusion/test/_annotations.coco.json",
+        "/home/thanhmay/workspace/tiny-yolo-srw-gcame/data/SkyFusion/train/_annotations.coco.json",
+        "/home/thanhmay/workspace/tiny-yolo-srw-gcame/data/SkyFusion/valid/_annotations.coco.json"
+      ],
+      "format": "coco",
+      "yolo_images_dir": null,
+      "yolo_label_file_count": 0,
+      "yolo_labels_dir": null
+    },
+    "summary": {
+      "extensions": {
+        ".jpg": 2992,
+        ".json": 3,
+        ".txt": 1
+      },
+      "root": "/home/thanhmay/workspace/tiny-yolo-srw-gcame/data/SkyFusion",
+      "total_files": 2996
+    }
+  },
+  "/home/thanhmay/workspace/tiny-yolo-srw-gcame/data/SkyFusion_yolo": {
+    "format_detection": {
+      "coco_json_files": [],
+      "format": "yolo",
+      "yolo_images_dir": "/home/thanhmay/workspace/tiny-yolo-srw-gcame/data/SkyFusion_yolo/images",
+      "yolo_label_file_count": 2992,
+      "yolo_labels_dir": "/home/thanhmay/workspace/tiny-yolo-srw-gcame/data/SkyFusion_yolo/labels"
+    },
+    "summary": {
+      "extensions": {
+        ".jpg": 2992,
+        ".txt": 2992,
+        ".yaml": 1
+      },
+      "root": "/home/thanhmay/workspace/tiny-yolo-srw-gcame/data/SkyFusion_yolo",
+      "total_files": 5985
+    }
+  }
+}
