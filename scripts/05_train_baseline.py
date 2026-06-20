@@ -28,16 +28,14 @@ else:  # pragma: no cover
 
 
 def parse_args() -> argparse.Namespace:
+    default_data = os.environ.get("SKYFUSION_DATA") or (
+        "/kaggle/input/datasets/thanhmay2406/dataset-for-research/SkyFusion_yolo/data.yaml"
+    )
     parser = argparse.ArgumentParser(description="Train a clean YOLO baseline for SkyFusion.")
     parser.add_argument(
         "--data",
         type=Path,
-        default=Path(
-            os.environ.get(
-                "SKYFUSION_DATA",
-                "/kaggle/input/datasets/thanhmay2406/dataset-for-research/SkyFusion_yolo/data.yaml",
-            )
-        ),
+        default=Path(default_data),
         help="Path to the YOLO dataset YAML.",
     )
     parser.add_argument(
