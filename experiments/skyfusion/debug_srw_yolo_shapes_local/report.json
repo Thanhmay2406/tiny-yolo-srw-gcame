@@ -1,0 +1,38 @@
+{
+  "mode": "from_yolo",
+  "target_name": "P3",
+  "target_index": 15,
+  "feature_shape": [
+    1,
+    128,
+    40,
+    40
+  ],
+  "saliency_shape": [
+    1,
+    1,
+    40,
+    40
+  ],
+  "srw_output_shape": [
+    1,
+    128,
+    40,
+    40
+  ],
+  "saliency_mode": "saliency_head",
+  "alpha": 0.10000000149011612,
+  "trainable_params": 77068,
+  "gate_s_range": [
+    0.6191539168357849,
+    0.6462161540985107
+  ],
+  "gate_c_range": [
+    0.40707656741142273,
+    0.5972651243209839
+  ],
+  "saliency_range": [
+    0.45557349920272827,
+    0.6749553680419922
+  ]
+}

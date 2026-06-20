@@ -1,0 +1,44 @@
+[
+  {
+    "image_id": "images/valid/002c78530_png_jpg.rf.d4abddae245863ea510392b580460bae.jpg",
+    "target_layer": "P3",
+    "target_index": 15,
+    "feature_shape": [
+      1,
+      128,
+      40,
+      40
+    ],
+    "saliency_shape": [
+      1,
+      1,
+      40,
+      40
+    ],
+    "saliency_provider": "offline_xai_teacher",
+    "saliency_min": 0.0,
+    "saliency_max": 1.0,
+    "saliency_mean": 0.1569523960351944
+  },
+  {
+    "image_id": "images/valid/01b04ce8d_png_jpg.rf.115536a4983063d08a7dfd8e0061567d.jpg",
+    "target_layer": "P3",
+    "target_index": 15,
+    "feature_shape": [
+      1,
+      128,
+      40,
+      40
+    ],
+    "saliency_shape": [
+      1,
+      1,
+      40,
+      40
+    ],
+    "saliency_provider": "offline_xai_teacher",
+    "saliency_min": 0.0,
+    "saliency_max": 1.0,
+    "saliency_mean": 0.10430507361888885
+  }
+]

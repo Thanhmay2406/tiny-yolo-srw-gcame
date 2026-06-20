@@ -13,7 +13,10 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.utils.io import ensure_dir, load_yaml
 from src.utils.logging import save_run_config, save_run_metrics, setup_logging
+from src.utils.runtime import configure_runtime_environment
 from src.utils.seed import seed_everything
+
+configure_runtime_environment()
 
 try:
     from ultralytics import YOLO

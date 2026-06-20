@@ -1,0 +1,24 @@
+Dataset root: /home/thanhmay/workspace/tiny-yolo-srw-gcame/data
+
+[data]
+format: coco
+candidate images: 12025
+candidate annotations: 9040
+coco json files: 3
+
+[SkyFusion]
+format: coco
+candidate images: 2992
+candidate annotations: 4
+coco json files: 3
+
+[SkyFusion_yolo]
+format: yolo
+candidate images: 2992
+candidate annotations: 2993
+yolo label files: 2992
+
+COCO source detected under SkyFusion.
+YOLO dataset detected under SkyFusion_yolo.
+Recommendation: validate the existing YOLO dataset before any reconversion.
+Do not write anything into /kaggle/input.

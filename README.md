@@ -2,14 +2,17 @@
 
 Kaggle-first research repository for G-CAME-guided SRW YOLO on the dataset `thanhmay2406/dataset-for-research`.
 
-## Phase 0 Status
+## Current Status
 
-This phase only prepares the repository for Kaggle execution.
+The repository now covers the baseline and several post-baseline debug phases from the roadmap.
 
-- Training is not implemented in this phase.
-- No SRW integration is implemented yet.
-- No `L_sal` training path is implemented yet.
-- The existing dataset must be inspected first; reconversion to YOLO is only needed when the YOLO copy is missing or invalid.
+- `scripts/05_train_baseline.py`: clean YOLO baseline training.
+- `scripts/06_train_tradaug.py`: traditional augmentation baseline.
+- `scripts/07_debug_gt_saliency.py`: Gaussian GT saliency mask debug from YOLO boxes.
+- `scripts/08_debug_xai_saliency.py`: saliency provider debug on YOLO feature maps.
+- `scripts/08b_precompute_xai_teacher.py`: offline teacher saliency precompute.
+- `scripts/09_debug_srw_shapes.py`: standalone and YOLO-hook SRW shape debug.
+- Main training flows for `L_sal`-only, `SRW`-only, and `SRW + L_sal` are not implemented yet.
 
 ## Current Repository Structure
 
@@ -148,6 +151,60 @@ It prints:
 - every runnable script must use `argparse`
 - every experiment must save config and metrics
 - baseline training, when added later, must not import SRW or `L_sal`
+
+## Post-Baseline Commands
+
+Traditional augmentation baseline:
+
+```bash
+python scripts/06_train_tradaug.py \
+  --data "$SKYFUSION_DATA" \
+  --epochs 100 \
+  --imgsz 640 \
+  --batch 16 \
+  --seed 0 \
+  --run-name tradaug_yolov8s_seed0
+```
+
+GT saliency debug:
+
+```bash
+python scripts/07_debug_gt_saliency.py \
+  --data "$SKYFUSION_DATA" \
+  --split train \
+  --num-samples 16 \
+  --output-dir experiments/skyfusion/debug_gt_saliency
+```
+
+Saliency provider debug:
+
+```bash
+python scripts/08_debug_xai_saliency.py \
+  --data "$SKYFUSION_DATA" \
+  --split valid \
+  --target-layers P3 \
+  --saliency-provider saliency_head \
+  --weights yolov8s.pt \
+  --output-dir experiments/skyfusion/debug_saliency_head
+```
+
+Offline teacher precompute:
+
+```bash
+python scripts/08b_precompute_xai_teacher.py \
+  --data "$SKYFUSION_DATA" \
+  --weights experiments/skyfusion/baseline_yolov8s/weights/best.pt \
+  --split train \
+  --target-layers P3 \
+  --xai-method gradcam_like \
+  --output-dir experiments/skyfusion/xai_teacher/baseline_p3_train
+```
+
+SRW debug:
+
+```bash
+python scripts/09_debug_srw_shapes.py --from-yolo --model yolov8s.yaml --target-layers P3
+```
 
 ## Phase 0 Validation Commands
 

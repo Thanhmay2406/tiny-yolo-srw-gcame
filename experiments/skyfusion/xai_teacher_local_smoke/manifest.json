@@ -1,0 +1,9 @@
+{
+  "split": "valid",
+  "target_layers": "P3",
+  "xai_method": "gradcam_like",
+  "items": {
+    "images/valid/002c78530_png_jpg.rf.d4abddae245863ea510392b580460bae.jpg": "maps/images__valid__002c78530_png_jpg.rf.d4abddae245863ea510392b580460bae.jpg.npy",
+    "images/valid/01b04ce8d_png_jpg.rf.115536a4983063d08a7dfd8e0061567d.jpg": "maps/images__valid__01b04ce8d_png_jpg.rf.115536a4983063d08a7dfd8e0061567d.jpg.npy"
+  }
+}
