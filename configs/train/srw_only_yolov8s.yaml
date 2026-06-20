@@ -1,0 +1,15 @@
+data: /kaggle/input/datasets/thanhmay2406/dataset-for-research/SkyFusion_yolo/data.yaml
+model: yolov8s.pt
+epochs: 100
+patience: 50
+imgsz: 640
+batch: 16
+seed: 0
+device: null
+workers: null
+run_name: srw_only_p3_seed0
+output_root: experiments/skyfusion
+target_layers: P3
+saliency_provider: saliency_head
+teacher_dir: null
+alpha_init: 0.1

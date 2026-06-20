@@ -1,0 +1,15 @@
+data: /tmp/skyfusion_mini/data.yaml
+model: yolov8n.yaml
+epochs: 1
+imgsz: 160
+batch: 1
+seed: 0
+patience: 50
+device: cpu
+workers: 0
+run_name: smoke_srw_only_local
+output_root: /home/thanhmay/workspace/tiny-yolo-srw-gcame/experiments/skyfusion
+target_layers: P3
+saliency_provider: saliency_head
+teacher_dir: null
+alpha_init: 0.1
