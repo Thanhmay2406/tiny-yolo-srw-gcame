@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-from __future__ import annotations
 
 import argparse
 import csv
@@ -45,6 +44,12 @@ def parse_args() -> argparse.Namespace:
         help="Ultralytics model checkpoint or model config.",
     )
     parser.add_argument("--epochs", type=int, required=True, help="Number of training epochs.")
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=50,
+        help="Early stopping patience in epochs, following Ultralytics native behavior.",
+    )
     parser.add_argument("--imgsz", type=int, default=640, help="Input image size.")
     parser.add_argument("--batch", type=int, default=16, help="Batch size.")
     parser.add_argument("--seed", type=int, default=0, help="Random seed.")
@@ -265,6 +270,7 @@ def main() -> None:
         "data": str(data_yaml),
         "model": args.model,
         "epochs": args.epochs,
+        "patience": args.patience,
         "imgsz": args.imgsz,
         "batch": args.batch,
         "seed": args.seed,
@@ -282,6 +288,7 @@ def main() -> None:
     train_kwargs: dict[str, Any] = {
         "data": str(data_yaml),
         "epochs": args.epochs,
+        "patience": args.patience,
         "imgsz": args.imgsz,
         "batch": args.batch,
         "seed": args.seed,

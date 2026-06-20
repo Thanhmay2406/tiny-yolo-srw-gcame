@@ -1,6 +1,7 @@
 data: /kaggle/input/datasets/thanhmay2406/dataset-for-research/SkyFusion_yolo/data.yaml
 model: yolov8s.pt
 epochs: 100
+patience: 50
 imgsz: 640
 batch: 16
 seed: 0
