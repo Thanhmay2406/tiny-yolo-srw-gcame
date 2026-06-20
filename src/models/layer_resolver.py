@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import torch
+
 from typing import Any
 
 
@@ -10,6 +12,8 @@ def _unwrap_model(model: Any) -> Any:
 def resolve_detect_feature_indices(model: Any) -> dict[str, int]:
     core_model = _unwrap_model(model)
     modules = getattr(core_model, "model", None)
+    if modules is None and isinstance(core_model, torch.nn.Sequential):
+        modules = core_model
     if modules is None or len(modules) == 0:
         raise ValueError("Could not resolve YOLO module list.")
 

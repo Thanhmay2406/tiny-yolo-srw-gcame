@@ -1,0 +1,16 @@
+data: /tmp/skyfusion_mini/data.yaml
+model: yolov8n.yaml
+epochs: 1
+imgsz: 160
+batch: 1
+seed: 0
+patience: 50
+device: cpu
+workers: 0
+run_name: smoke_lsal_only_local
+output_root: /home/thanhmay/workspace/tiny-yolo-srw-gcame/experiments/skyfusion
+target_layers: P3
+saliency_provider: saliency_head
+loss_type: mse
+lambda_sal: 0.1
+sigma_ratio: 0.04

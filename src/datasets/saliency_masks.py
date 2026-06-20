@@ -4,6 +4,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import torch
 
 
 def read_yolo_label_file(label_path: str | Path) -> np.ndarray:
@@ -87,3 +88,28 @@ def resize_mask_to_feature(mask: np.ndarray, feature_size: tuple[int, int]) -> n
         raise ValueError(f"Invalid feature size: {feature_size}")
     resized = cv2.resize(mask.astype(np.float32), (feature_width, feature_height), interpolation=cv2.INTER_LINEAR)
     return np.clip(resized.astype(np.float32), 0.0, 1.0)
+
+
+def build_batch_gaussian_masks_from_targets(
+    batch_idx: torch.Tensor,
+    bboxes: torch.Tensor,
+    batch_size: int,
+    image_size: tuple[int, int],
+    sigma_ratio: float = 0.04,
+    device: torch.device | None = None,
+) -> torch.Tensor:
+    height, width = image_size
+    batch_masks: list[torch.Tensor] = []
+    for image_index in range(batch_size):
+        image_mask = np.zeros((height, width), dtype=np.float32)
+        selected = bboxes[batch_idx.view(-1) == image_index]
+        if selected.numel() > 0:
+            cls_column = torch.zeros((selected.shape[0], 1), dtype=selected.dtype, device=selected.device)
+            box_rows = torch.cat([cls_column, selected], dim=1).detach().cpu().numpy()
+            image_mask = create_gaussian_bbox_mask(box_rows, image_size=image_size, sigma_ratio=sigma_ratio)
+        batch_masks.append(torch.from_numpy(image_mask))
+
+    stacked = torch.stack(batch_masks, dim=0).unsqueeze(1)
+    if device is not None:
+        stacked = stacked.to(device=device)
+    return stacked.float()
