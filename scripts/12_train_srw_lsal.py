@@ -51,7 +51,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--saliency-provider", type=str, default="saliency_head", choices=("saliency_head",))
     parser.add_argument("--teacher-dir", type=Path, default=None, help="Optional offline teacher manifest directory.")
     parser.add_argument("--beta-teacher", type=float, default=0.0, help="Teacher loss weight.")
-    parser.add_argument("--loss-type", type=str, default="mse", choices=("mse", "bce", "dice"))
+    parser.add_argument("--loss-type", type=str, default="mse", choices=("mse", "bce", "dice", "energy", "energy_bg"))
     parser.add_argument("--lambda-sal", type=float, default=0.1, help="Weight applied to GT saliency alignment loss.")
     parser.add_argument(
         "--lambda-schedule",
@@ -63,6 +63,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lambda-max", type=float, default=None, help="Peak lambda for scheduled modes.")
     parser.add_argument("--lambda-min", type=float, default=0.0, help="Minimum lambda for decay schedules.")
     parser.add_argument("--warmup-epochs", type=int, default=0, help="Warmup epochs for lambda scheduling.")
+    parser.add_argument("--beta-bg", type=float, default=0.5, help="Background suppression weight for energy_bg.")
+    parser.add_argument("--dilation-radius", type=int, default=3, help="Ignore-mask dilation radius for energy_bg.")
+    parser.add_argument("--size-aware", action="store_true", help="Enable image-level size-aware saliency weighting.")
+    parser.add_argument(
+        "--size-weight-mode",
+        type=str,
+        default="log_inverse",
+        choices=("log_inverse", "inverse_sqrt"),
+        help="Weighting mode when --size-aware is enabled.",
+    )
+    parser.add_argument("--size-weight-max", type=float, default=None, help="Optional clamp for size-aware weights.")
     parser.add_argument("--sigma-ratio", type=float, default=0.04, help="Gaussian sigma ratio for GT saliency masks.")
     parser.add_argument("--alpha-init", type=float, default=0.1, help="Initial SRW alpha.")
     return parser.parse_args()
@@ -160,6 +171,11 @@ def main() -> None:
         "lambda_max": args.lambda_max,
         "lambda_min": args.lambda_min,
         "warmup_epochs": args.warmup_epochs,
+        "beta_bg": args.beta_bg,
+        "dilation_radius": args.dilation_radius,
+        "size_aware": args.size_aware,
+        "size_weight_mode": args.size_weight_mode,
+        "size_weight_max": args.size_weight_max,
         "sigma_ratio": args.sigma_ratio,
         "alpha_init": args.alpha_init,
     }
@@ -185,6 +201,11 @@ def main() -> None:
         "lambda_max": args.lambda_max,
         "lambda_min": args.lambda_min,
         "warmup_epochs": args.warmup_epochs,
+        "beta_bg": args.beta_bg,
+        "dilation_radius": args.dilation_radius,
+        "size_aware": args.size_aware,
+        "size_weight_mode": args.size_weight_mode,
+        "size_weight_max": args.size_weight_max,
         "sigma_ratio": args.sigma_ratio,
         "alpha_init": args.alpha_init,
     }

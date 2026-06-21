@@ -113,3 +113,27 @@ def build_batch_gaussian_masks_from_targets(
     if device is not None:
         stacked = stacked.to(device=device)
     return stacked.float()
+
+
+def build_batch_bbox_masks_from_targets(
+    batch_idx: torch.Tensor,
+    bboxes: torch.Tensor,
+    batch_size: int,
+    image_size: tuple[int, int],
+    device: torch.device | None = None,
+) -> torch.Tensor:
+    height, width = image_size
+    batch_masks: list[torch.Tensor] = []
+    for image_index in range(batch_size):
+        image_mask = np.zeros((height, width), dtype=np.float32)
+        selected = bboxes[batch_idx.view(-1) == image_index]
+        if selected.numel() > 0:
+            cls_column = torch.zeros((selected.shape[0], 1), dtype=selected.dtype, device=selected.device)
+            box_rows = torch.cat([cls_column, selected], dim=1).detach().cpu().numpy()
+            image_mask = create_bbox_mask(box_rows, image_size=image_size)
+        batch_masks.append(torch.from_numpy(image_mask))
+
+    stacked = torch.stack(batch_masks, dim=0).unsqueeze(1)
+    if device is not None:
+        stacked = stacked.to(device=device)
+    return stacked.float()

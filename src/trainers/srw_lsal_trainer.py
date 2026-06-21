@@ -12,14 +12,18 @@ from ultralytics.nn.tasks import DetectionModel
 from ultralytics.utils import DEFAULT_CFG
 from ultralytics.utils.loss import v8DetectionLoss
 
-from src.datasets.saliency_masks import build_batch_gaussian_masks_from_targets
+from src.datasets.saliency_masks import build_batch_bbox_masks_from_targets, build_batch_gaussian_masks_from_targets
 from src.datasets.yolo_dataset import image_id_from_path
+from src.losses.background_suppression import combined_energy_bg_loss
+from src.losses.energy_in_box import energy_in_box_loss
 from src.losses.saliency_alignment import get_saliency_loss
+from src.losses.size_aware import image_level_size_weight
 from src.models.layer_resolver import resolve_target_layer
 from src.models.srw import SRWModule
 from src.training.lambda_scheduler import LambdaScheduler, LambdaSchedulerConfig, save_lambda_curve
 from src.trainers.lsal_trainer import _infer_module_out_channels
 from src.xai.saliency_provider import SaliencyProvider
+from src.losses.saliency_alignment import mse_saliency_loss
 
 
 class SRWLSalDetectionLoss(v8DetectionLoss):
@@ -34,9 +38,16 @@ class SRWLSalDetectionLoss(v8DetectionLoss):
         lambda_min: float = 0.0,
         warmup_epochs: int = 0,
         total_epochs: int = 100,
+        beta_bg: float = 0.5,
+        dilation_radius: int = 3,
+        size_aware: bool = False,
+        size_weight_mode: str = "log_inverse",
+        size_weight_max: float | None = None,
     ) -> None:
         super().__init__(model)
-        self.saliency_loss_fn = get_saliency_loss(loss_type)
+        self.loss_type = loss_type
+        self.saliency_loss_fn = get_saliency_loss(loss_type) if loss_type in {"mse", "bce", "dice"} else None
+        self.teacher_loss_fn = mse_saliency_loss
         self.lambda_schedule = str(lambda_schedule)
         self.lambda_scheduler = LambdaScheduler(
             LambdaSchedulerConfig(
@@ -50,20 +61,77 @@ class SRWLSalDetectionLoss(v8DetectionLoss):
         )
         self.lambda_sal = float(self.lambda_scheduler.current_value)
         self.beta_teacher = float(beta_teacher)
+        self.beta_bg = float(beta_bg)
+        self.dilation_radius = int(dilation_radius)
+        self.size_aware = bool(size_aware)
+        self.size_weight_mode = str(size_weight_mode)
+        self.size_weight_max = float(size_weight_max) if size_weight_max is not None else None
+
+    def _image_weights(self, batch: dict[str, torch.Tensor]) -> torch.Tensor | None:
+        if not getattr(self, "size_aware", False):
+            return None
+        return image_level_size_weight(
+            batch_idx=batch["batch_idx"],
+            bboxes=batch["bboxes"],
+            batch_size=int(batch["img"].shape[0]),
+            mode=getattr(self, "size_weight_mode", "log_inverse"),
+            max_weight=getattr(self, "size_weight_max", None),
+        )
+
+    def _gt_saliency_loss(self, saliency_pred: torch.Tensor, batch: dict[str, torch.Tensor]) -> torch.Tensor:
+        image_weights = self._image_weights(batch)
+        if self.loss_type in {"mse", "bce", "dice"}:
+            saliency_target = batch["gt_saliency_mask"]
+            if tuple(saliency_target.shape[-2:]) != tuple(saliency_pred.shape[-2:]):
+                saliency_target = torch.nn.functional.interpolate(
+                    saliency_target.float(),
+                    size=saliency_pred.shape[-2:],
+                    mode="bilinear",
+                    align_corners=False,
+                )
+            if image_weights is None:
+                assert self.saliency_loss_fn is not None
+                return self.saliency_loss_fn(saliency_pred, saliency_target)
+            if self.loss_type == "mse":
+                per_image = (saliency_pred - saliency_target).pow(2).mean(dim=(1, 2, 3))
+            elif self.loss_type == "bce":
+                pred = saliency_pred.clamp(min=1e-6, max=1.0 - 1e-6)
+                per_image = torch.nn.functional.binary_cross_entropy(
+                    pred,
+                    saliency_target,
+                    reduction="none",
+                ).mean(dim=(1, 2, 3))
+            else:
+                pred_flat = saliency_pred.flatten(1)
+                target_flat = saliency_target.flatten(1)
+                intersection = (pred_flat * target_flat).sum(dim=1)
+                denom = pred_flat.sum(dim=1) + target_flat.sum(dim=1)
+                per_image = 1.0 - ((2.0 * intersection + 1e-6) / (denom + 1e-6))
+            return (per_image * image_weights.to(device=per_image.device, dtype=per_image.dtype)).mean()
+
+        bbox_mask = batch["gt_bbox_mask"]
+        if tuple(bbox_mask.shape[-2:]) != tuple(saliency_pred.shape[-2:]):
+            bbox_mask = torch.nn.functional.interpolate(
+                bbox_mask.float(),
+                size=saliency_pred.shape[-2:],
+                mode="nearest",
+            )
+        if self.loss_type == "energy":
+            return energy_in_box_loss(saliency_pred, bbox_mask, image_weights=image_weights)
+        if self.loss_type == "energy_bg":
+            return combined_energy_bg_loss(
+                saliency_pred,
+                bbox_mask,
+                beta_bg=self.beta_bg,
+                dilation_radius=self.dilation_radius,
+                image_weights=image_weights,
+            )
+        raise ValueError(f"Unsupported saliency loss type: {self.loss_type}")
 
     def loss(self, preds: dict[str, torch.Tensor], batch: dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
         det_loss, det_detach = super().loss(preds, batch)
         saliency_pred = preds["saliency_pred"]
-        saliency_target = batch["gt_saliency_mask"]
-        if tuple(saliency_target.shape[-2:]) != tuple(saliency_pred.shape[-2:]):
-            saliency_target = torch.nn.functional.interpolate(
-                saliency_target.float(),
-                size=saliency_pred.shape[-2:],
-                mode="bilinear",
-                align_corners=False,
-            )
-
-        saliency_loss = self.saliency_loss_fn(saliency_pred, saliency_target)
+        saliency_loss = self._gt_saliency_loss(saliency_pred, batch)
         saliency_item = saliency_loss.unsqueeze(0) * saliency_pred.shape[0] * self.lambda_sal
 
         teacher_target = batch.get("teacher_saliency_mask")
@@ -76,7 +144,7 @@ class SRWLSalDetectionLoss(v8DetectionLoss):
             )
 
         if teacher_target is not None and self.beta_teacher > 0.0:
-            teacher_loss = self.saliency_loss_fn(saliency_pred, teacher_target)
+            teacher_loss = self.teacher_loss_fn(saliency_pred, teacher_target)
         else:
             teacher_loss = saliency_pred.new_zeros(())
         teacher_item = teacher_loss.unsqueeze(0) * saliency_pred.shape[0] * self.beta_teacher
@@ -113,6 +181,11 @@ class SRWLSalDetectionModel(DetectionModel):
         lambda_max: float | None = None,
         lambda_min: float = 0.0,
         warmup_epochs: int = 0,
+        beta_bg: float = 0.5,
+        dilation_radius: int = 3,
+        size_aware: bool = False,
+        size_weight_mode: str = "log_inverse",
+        size_weight_max: float | None = None,
         total_epochs: int = 100,
         sigma_ratio: float = 0.04,
     ) -> None:
@@ -126,6 +199,11 @@ class SRWLSalDetectionModel(DetectionModel):
         self._srw_lambda_max = lambda_max
         self._srw_lambda_min = lambda_min
         self._srw_warmup_epochs = warmup_epochs
+        self._srw_beta_bg = beta_bg
+        self._srw_dilation_radius = dilation_radius
+        self._srw_size_aware = size_aware
+        self._srw_size_weight_mode = size_weight_mode
+        self._srw_size_weight_max = size_weight_max
         self._srw_total_epochs = total_epochs
         self._srw_sigma_ratio = sigma_ratio
         self._captured_saliency_pred: torch.Tensor | None = None
@@ -216,6 +294,11 @@ class SRWLSalDetectionModel(DetectionModel):
             lambda_max=self._srw_lambda_max,
             lambda_min=self._srw_lambda_min,
             warmup_epochs=self._srw_warmup_epochs,
+            beta_bg=self._srw_beta_bg,
+            dilation_radius=self._srw_dilation_radius,
+            size_aware=self._srw_size_aware,
+            size_weight_mode=self._srw_size_weight_mode,
+            size_weight_max=self._srw_size_weight_max,
             total_epochs=self._srw_total_epochs,
         )
 
@@ -239,6 +322,14 @@ class SRWLSalDetectionModel(DetectionModel):
                 sigma_ratio=float(self._srw_sigma_ratio),
                 device=batch["img"].device,
             )
+        if "gt_bbox_mask" not in batch:
+            batch["gt_bbox_mask"] = build_batch_bbox_masks_from_targets(
+                batch_idx=batch["batch_idx"],
+                bboxes=batch["bboxes"],
+                batch_size=batch["img"].shape[0],
+                image_size=tuple(batch["img"].shape[-2:]),
+                device=batch["img"].device,
+            )
         return self.criterion(preds, batch)
 
 
@@ -256,6 +347,11 @@ class SRWLSalDetectionTrainer(DetectionTrainer):
             "lambda_max": overrides.pop("lambda_max", None),
             "lambda_min": overrides.pop("lambda_min", 0.0),
             "warmup_epochs": overrides.pop("warmup_epochs", 0),
+            "beta_bg": overrides.pop("beta_bg", 0.5),
+            "dilation_radius": overrides.pop("dilation_radius", 3),
+            "size_aware": overrides.pop("size_aware", False),
+            "size_weight_mode": overrides.pop("size_weight_mode", "log_inverse"),
+            "size_weight_max": overrides.pop("size_weight_max", None),
             "sigma_ratio": overrides.pop("sigma_ratio", 0.04),
             "alpha_init": overrides.pop("alpha_init", 0.1),
         }
@@ -294,6 +390,13 @@ class SRWLSalDetectionTrainer(DetectionTrainer):
             sigma_ratio=float(getattr(self.args, "sigma_ratio", 0.04)),
             device=self.device,
         )
+        batch["gt_bbox_mask"] = build_batch_bbox_masks_from_targets(
+            batch_idx=batch["batch_idx"],
+            bboxes=batch["bboxes"],
+            batch_size=batch["img"].shape[0],
+            image_size=tuple(batch["img"].shape[-2:]),
+            device=self.device,
+        )
         if "im_file" in batch:
             image_ids = [image_id_from_path(self._data_yaml_path, path) for path in batch["im_file"]]
             batch["image_ids"] = image_ids
@@ -317,6 +420,11 @@ class SRWLSalDetectionTrainer(DetectionTrainer):
             lambda_max=getattr(self.args, "lambda_max", None),
             lambda_min=float(getattr(self.args, "lambda_min", 0.0)),
             warmup_epochs=int(getattr(self.args, "warmup_epochs", 0)),
+            beta_bg=float(getattr(self.args, "beta_bg", 0.5)),
+            dilation_radius=int(getattr(self.args, "dilation_radius", 3)),
+            size_aware=bool(getattr(self.args, "size_aware", False)),
+            size_weight_mode=str(getattr(self.args, "size_weight_mode", "log_inverse")),
+            size_weight_max=getattr(self.args, "size_weight_max", None),
             total_epochs=int(getattr(self.args, "epochs", 100)),
             sigma_ratio=float(getattr(self.args, "sigma_ratio", 0.04)),
         )

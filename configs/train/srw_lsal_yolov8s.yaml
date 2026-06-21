@@ -19,5 +19,10 @@ lambda_schedule: constant
 lambda_max: null
 lambda_min: 0.0
 warmup_epochs: 0
+beta_bg: 0.5
+dilation_radius: 3
+size_aware: false
+size_weight_mode: log_inverse
+size_weight_max: null
 sigma_ratio: 0.04
 alpha_init: 0.1

@@ -7,9 +7,12 @@ from src.trainers.srw_lsal_trainer import SRWLSalDetectionLoss
 
 def test_srw_lsal_loss_adds_teacher_term_only_when_enabled() -> None:
     loss = object.__new__(SRWLSalDetectionLoss)
+    loss.loss_type = "mse"
     loss.saliency_loss_fn = lambda pred, target: torch.mean((pred - target) ** 2)
+    loss.teacher_loss_fn = loss.saliency_loss_fn
     loss.lambda_sal = 0.5
     loss.beta_teacher = 0.25
+    loss.size_aware = False
 
     preds = {"saliency_pred": torch.ones((2, 1, 4, 4), dtype=torch.float32)}
     batch = {
