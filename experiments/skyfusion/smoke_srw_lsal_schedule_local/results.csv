@@ -1,0 +1,4 @@
+epoch,time,train/box_loss,train/cls_loss,train/dfl_loss,train/sal_loss,train/teacher_sal_loss,metrics/precision(B),metrics/recall(B),metrics/mAP50(B),metrics/mAP50-95(B),val/box_loss,val/cls_loss,val/dfl_loss,val/sal_loss,val/teacher_sal_loss,lr/pg0,lr/pg1,lr/pg2,lambda_sal,beta_teacher
+1,0.144135,0,0.49727,0,0.04034,0,0,0,0,0,0,0.67431,0,0.04337,0,0,0,0,0.2,0
+2,0.63325,0,0.50265,0,0.04306,0,0,0,0,0,0,0.67431,0,0.04337,0,9.5743e-06,9.5743e-06,9.5743e-06,0.01,0
+3,0.943623,0,0.49809,0,0.00215,0,0,0,0,0,0,0.67484,0,0.04334,0,9.7172e-06,9.7172e-06,9.7172e-06,0.01,0

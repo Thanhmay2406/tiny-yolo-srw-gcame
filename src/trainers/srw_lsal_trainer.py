@@ -17,6 +17,7 @@ from src.datasets.yolo_dataset import image_id_from_path
 from src.losses.saliency_alignment import get_saliency_loss
 from src.models.layer_resolver import resolve_target_layer
 from src.models.srw import SRWModule
+from src.training.lambda_scheduler import LambdaScheduler, LambdaSchedulerConfig, save_lambda_curve
 from src.trainers.lsal_trainer import _infer_module_out_channels
 from src.xai.saliency_provider import SaliencyProvider
 
@@ -28,10 +29,26 @@ class SRWLSalDetectionLoss(v8DetectionLoss):
         loss_type: str = "mse",
         lambda_sal: float = 0.1,
         beta_teacher: float = 0.0,
+        lambda_schedule: str = "constant",
+        lambda_max: float | None = None,
+        lambda_min: float = 0.0,
+        warmup_epochs: int = 0,
+        total_epochs: int = 100,
     ) -> None:
         super().__init__(model)
         self.saliency_loss_fn = get_saliency_loss(loss_type)
-        self.lambda_sal = float(lambda_sal)
+        self.lambda_schedule = str(lambda_schedule)
+        self.lambda_scheduler = LambdaScheduler(
+            LambdaSchedulerConfig(
+                mode=self.lambda_schedule,
+                total_epochs=int(total_epochs),
+                warmup_epochs=int(warmup_epochs),
+                lambda_max=float(lambda_max if lambda_max is not None else lambda_sal),
+                lambda_min=float(lambda_min),
+                constant_lambda=float(lambda_sal),
+            )
+        )
+        self.lambda_sal = float(self.lambda_scheduler.current_value)
         self.beta_teacher = float(beta_teacher)
 
     def loss(self, preds: dict[str, torch.Tensor], batch: dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
@@ -75,6 +92,9 @@ class SRWLSalDetectionLoss(v8DetectionLoss):
         )
         return total_items, detached_items
 
+    def update(self) -> None:
+        self.lambda_sal = float(self.lambda_scheduler.step())
+
 
 class SRWLSalDetectionModel(DetectionModel):
     def __init__(
@@ -89,6 +109,11 @@ class SRWLSalDetectionModel(DetectionModel):
         loss_type: str = "mse",
         lambda_sal: float = 0.1,
         beta_teacher: float = 0.0,
+        lambda_schedule: str = "constant",
+        lambda_max: float | None = None,
+        lambda_min: float = 0.0,
+        warmup_epochs: int = 0,
+        total_epochs: int = 100,
         sigma_ratio: float = 0.04,
     ) -> None:
         self._srw_target_layer = target_layer
@@ -97,6 +122,11 @@ class SRWLSalDetectionModel(DetectionModel):
         self._srw_loss_type = loss_type
         self._srw_lambda_sal = lambda_sal
         self._srw_beta_teacher = beta_teacher
+        self._srw_lambda_schedule = lambda_schedule
+        self._srw_lambda_max = lambda_max
+        self._srw_lambda_min = lambda_min
+        self._srw_warmup_epochs = warmup_epochs
+        self._srw_total_epochs = total_epochs
         self._srw_sigma_ratio = sigma_ratio
         self._captured_saliency_pred: torch.Tensor | None = None
         self._captured_gate_s: torch.Tensor | None = None
@@ -182,6 +212,11 @@ class SRWLSalDetectionModel(DetectionModel):
             loss_type=self._srw_loss_type,
             lambda_sal=self._srw_lambda_sal,
             beta_teacher=self._srw_beta_teacher,
+            lambda_schedule=self._srw_lambda_schedule,
+            lambda_max=self._srw_lambda_max,
+            lambda_min=self._srw_lambda_min,
+            warmup_epochs=self._srw_warmup_epochs,
+            total_epochs=self._srw_total_epochs,
         )
 
     def loss(self, batch, preds=None):
@@ -217,6 +252,10 @@ class SRWLSalDetectionTrainer(DetectionTrainer):
             "beta_teacher": overrides.pop("beta_teacher", 0.0),
             "loss_type": overrides.pop("loss_type", "mse"),
             "lambda_sal": overrides.pop("lambda_sal", 0.1),
+            "lambda_schedule": overrides.pop("lambda_schedule", "constant"),
+            "lambda_max": overrides.pop("lambda_max", None),
+            "lambda_min": overrides.pop("lambda_min", 0.0),
+            "warmup_epochs": overrides.pop("warmup_epochs", 0),
             "sigma_ratio": overrides.pop("sigma_ratio", 0.04),
             "alpha_init": overrides.pop("alpha_init", 0.1),
         }
@@ -236,6 +275,7 @@ class SRWLSalDetectionTrainer(DetectionTrainer):
             if teacher_dir
             else None
         )
+        self.lambda_history: list[dict[str, float]] = []
 
     def _validator_args(self):
         args = copy(self.args)
@@ -273,6 +313,11 @@ class SRWLSalDetectionTrainer(DetectionTrainer):
             loss_type=str(getattr(self.args, "loss_type", "mse")),
             lambda_sal=float(getattr(self.args, "lambda_sal", 0.1)),
             beta_teacher=float(getattr(self.args, "beta_teacher", 0.0)),
+            lambda_schedule=str(getattr(self.args, "lambda_schedule", "constant")),
+            lambda_max=getattr(self.args, "lambda_max", None),
+            lambda_min=float(getattr(self.args, "lambda_min", 0.0)),
+            warmup_epochs=int(getattr(self.args, "warmup_epochs", 0)),
+            total_epochs=int(getattr(self.args, "epochs", 100)),
             sigma_ratio=float(getattr(self.args, "sigma_ratio", 0.04)),
         )
         if weights:
@@ -294,3 +339,18 @@ class SRWLSalDetectionTrainer(DetectionTrainer):
             loss_items = [round(float(x), 5) for x in loss_items]
             return dict(zip(keys, loss_items))
         return keys
+
+    def save_metrics(self, metrics):
+        criterion = getattr(getattr(self, "model", None), "criterion", None)
+        lambda_sal = float(getattr(criterion, "lambda_sal", getattr(self.args, "lambda_sal", 0.1)))
+        beta_teacher = float(getattr(criterion, "beta_teacher", getattr(self.args, "beta_teacher", 0.0)))
+        merged_metrics = dict(metrics)
+        merged_metrics["lambda_sal"] = lambda_sal
+        merged_metrics["beta_teacher"] = beta_teacher
+        super().save_metrics(merged_metrics)
+        self.lambda_history.append({"epoch": float(self.epoch + 1), "lambda_sal": lambda_sal})
+        save_lambda_curve(
+            self.lambda_history,
+            output_csv=self.save_dir / "lambda_curve.csv",
+            output_png=self.save_dir / "lambda_curve.png",
+        )

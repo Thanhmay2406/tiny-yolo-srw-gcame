@@ -12,7 +12,10 @@ The repository now covers the baseline and several post-baseline debug phases fr
 - `scripts/08_debug_xai_saliency.py`: saliency provider debug on YOLO feature maps.
 - `scripts/08b_precompute_xai_teacher.py`: offline teacher saliency precompute.
 - `scripts/09_debug_srw_shapes.py`: standalone and YOLO-hook SRW shape debug.
-- Main training flows for `L_sal`-only, `SRW`-only, and `SRW + L_sal` are not implemented yet.
+- `scripts/10_train_lsal_only.py`: `L_sal`-only training.
+- `scripts/11_train_srw_only.py`: `SRW`-only training.
+- `scripts/12_train_srw_lsal.py`: joint `SRW + L_sal` training with optional offline teacher loss.
+- Phase 13 lambda scheduling is implemented for `scripts/12_train_srw_lsal.py`.
 
 ## Current Repository Structure
 
@@ -204,6 +207,43 @@ SRW debug:
 
 ```bash
 python scripts/09_debug_srw_shapes.py --from-yolo --model yolov8s.yaml --target-layers P3
+```
+
+Joint `SRW + L_sal`:
+
+```bash
+python scripts/12_train_srw_lsal.py \
+  --data "$SKYFUSION_DATA" \
+  --model yolov8s.pt \
+  --epochs 100 \
+  --imgsz 640 \
+  --batch 16 \
+  --seed 0 \
+  --run-name srw_lsal_p3_mse_seed0 \
+  --target-layers P3 \
+  --loss-type mse \
+  --lambda-sal 0.1 \
+  --alpha-init 0.1
+```
+
+Joint `SRW + L_sal` with lambda scheduling:
+
+```bash
+python scripts/12_train_srw_lsal.py \
+  --data "$SKYFUSION_DATA" \
+  --model yolov8s.pt \
+  --epochs 100 \
+  --imgsz 640 \
+  --batch 16 \
+  --seed 0 \
+  --run-name srw_lsal_p3_warmup_decay_seed0 \
+  --target-layers P3 \
+  --loss-type mse \
+  --lambda-schedule warmup_cosine_decay \
+  --lambda-max 0.2 \
+  --lambda-min 0.01 \
+  --warmup-epochs 5 \
+  --alpha-init 0.1
 ```
 
 ## Phase 0 Validation Commands

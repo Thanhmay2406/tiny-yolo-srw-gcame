@@ -53,6 +53,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--beta-teacher", type=float, default=0.0, help="Teacher loss weight.")
     parser.add_argument("--loss-type", type=str, default="mse", choices=("mse", "bce", "dice"))
     parser.add_argument("--lambda-sal", type=float, default=0.1, help="Weight applied to GT saliency alignment loss.")
+    parser.add_argument(
+        "--lambda-schedule",
+        type=str,
+        default="constant",
+        choices=("constant", "linear_warmup", "cosine_decay", "warmup_cosine_decay"),
+        help="Lambda schedule mode for saliency loss.",
+    )
+    parser.add_argument("--lambda-max", type=float, default=None, help="Peak lambda for scheduled modes.")
+    parser.add_argument("--lambda-min", type=float, default=0.0, help="Minimum lambda for decay schedules.")
+    parser.add_argument("--warmup-epochs", type=int, default=0, help="Warmup epochs for lambda scheduling.")
     parser.add_argument("--sigma-ratio", type=float, default=0.04, help="Gaussian sigma ratio for GT saliency masks.")
     parser.add_argument("--alpha-init", type=float, default=0.1, help="Initial SRW alpha.")
     return parser.parse_args()
@@ -146,6 +156,10 @@ def main() -> None:
         "beta_teacher": args.beta_teacher,
         "loss_type": args.loss_type,
         "lambda_sal": args.lambda_sal,
+        "lambda_schedule": args.lambda_schedule,
+        "lambda_max": args.lambda_max,
+        "lambda_min": args.lambda_min,
+        "warmup_epochs": args.warmup_epochs,
         "sigma_ratio": args.sigma_ratio,
         "alpha_init": args.alpha_init,
     }
@@ -167,6 +181,10 @@ def main() -> None:
         "beta_teacher": args.beta_teacher,
         "loss_type": args.loss_type,
         "lambda_sal": args.lambda_sal,
+        "lambda_schedule": args.lambda_schedule,
+        "lambda_max": args.lambda_max,
+        "lambda_min": args.lambda_min,
+        "warmup_epochs": args.warmup_epochs,
         "sigma_ratio": args.sigma_ratio,
         "alpha_init": args.alpha_init,
     }
