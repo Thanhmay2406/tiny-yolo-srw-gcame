@@ -9,5 +9,6 @@ experiments/skyfusion/
 
 data/
 runs/
+results/
 
 .DS_Store
