@@ -7,8 +7,7 @@ __pycache__/
 experiments/skyfusion/
 !experiments/.gitkeep
 
-data/SkyFusion/
-data/SkyFusion_yolo/
-data/YOLO_format/
+data/
+runs/
 
 .DS_Store
