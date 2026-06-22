@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse
-import csv
 import os
 import sys
 from pathlib import Path
@@ -12,9 +11,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.utils.io import ensure_dir, load_yaml
+from src.utils.cli_config import namespace_to_config_reference, parse_args_with_optional_config
 from src.utils.logging import save_run_config, save_run_metrics, setup_logging
 from src.utils.runtime import configure_runtime_environment
 from src.utils.seed import seed_everything
+from src.utils.train_runs import collect_train_metrics
 
 configure_runtime_environment()
 
@@ -88,7 +89,7 @@ def parse_args() -> argparse.Namespace:
         "--visualize-split",
         type=str,
         default="val",
-        choices=("train", "val", "test"),
+        choices=("train", "valid", "val", "test"),
         help="Dataset split used for post-training prediction visualizations.",
     )
     parser.add_argument(
@@ -97,7 +98,7 @@ def parse_args() -> argparse.Namespace:
         default=0.25,
         help="Confidence threshold for post-training prediction visualizations.",
     )
-    return parser.parse_args()
+    return parse_args_with_optional_config(parser)
 
 
 def resolve_run_dir(output_root: Path, run_name: str) -> Path:
@@ -140,76 +141,6 @@ def collect_image_files(sources: list[Path], limit: int) -> list[Path]:
             if len(images) >= limit:
                 return images
     return images
-
-
-def csv_last_row(path: Path) -> dict[str, Any]:
-    if not path.is_file():
-        return {}
-
-    with path.open("r", encoding="utf-8", newline="") as handle:
-        reader = csv.DictReader(handle)
-        rows = list(reader)
-
-    if not rows:
-        return {}
-
-    metrics: dict[str, Any] = {}
-    for key, value in rows[-1].items():
-        if value is None:
-            continue
-        text = value.strip()
-        if text == "":
-            continue
-        try:
-            metrics[key] = float(text)
-        except ValueError:
-            metrics[key] = text
-    return metrics
-
-
-def normalize_metric_value(value: Any) -> Any:
-    if isinstance(value, Path):
-        return str(value)
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
-    if isinstance(value, dict):
-        return {str(k): normalize_metric_value(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [normalize_metric_value(item) for item in value]
-    if hasattr(value, "item"):
-        try:
-            return value.item()
-        except Exception:  # pragma: no cover
-            return str(value)
-    return str(value)
-
-
-def collect_train_metrics(train_result: Any, model: Any, run_dir: Path) -> dict[str, Any]:
-    metrics: dict[str, Any] = {}
-
-    if isinstance(train_result, dict):
-        metrics.update(train_result)
-
-    results_dict = getattr(train_result, "results_dict", None)
-    if isinstance(results_dict, dict):
-        metrics.update(results_dict)
-
-    trainer = getattr(model, "trainer", None)
-    if trainer is not None:
-        for attr in ("best", "last", "save_dir"):
-            value = getattr(trainer, attr, None)
-            if value is not None:
-                metrics[attr] = value
-        trainer_metrics = getattr(trainer, "metrics", None)
-        if isinstance(trainer_metrics, dict):
-            metrics.update(trainer_metrics)
-
-    csv_metrics = csv_last_row(run_dir / "results.csv")
-    if csv_metrics:
-        metrics["results_csv_last_row"] = csv_metrics
-        metrics.update({k: v for k, v in csv_metrics.items() if k not in metrics})
-
-    return normalize_metric_value(metrics)
 
 
 def visualize_predictions(
@@ -279,6 +210,7 @@ def main() -> None:
         "workers": args.workers,
         "run_name": args.run_name,
         "output_root": str(output_root),
+        "config": namespace_to_config_reference(args),
         "run_dir": str(run_dir),
         "visualize_samples": args.visualize_samples,
         "visualize_split": args.visualize_split,
@@ -308,7 +240,7 @@ def main() -> None:
     model = YOLO(args.model)
     train_result = model.train(**train_kwargs)
 
-    metrics = collect_train_metrics(train_result=train_result, model=model, run_dir=run_dir)
+    metrics = collect_train_metrics(model=model, run_dir=run_dir, train_result=train_result)
 
     visualization_sources = visualize_predictions(
         model=model,

@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import os
 import sys
 from pathlib import Path
-from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -18,9 +16,11 @@ from src.utils.runtime import configure_runtime_environment
 configure_runtime_environment()
 
 from src.trainers.srw_trainer import SRWOnlyDetectionTrainer
+from src.utils.cli_config import namespace_to_config_reference, parse_args_with_optional_config
 from src.utils.io import ensure_dir
 from src.utils.logging import save_run_config, save_run_metrics, setup_logging
 from src.utils.seed import seed_everything
+from src.utils.train_runs import collect_train_metrics
 
 try:
     from ultralytics import YOLO
@@ -29,6 +29,13 @@ except ImportError as exc:  # pragma: no cover
     ULTRALYTICS_IMPORT_ERROR = exc
 else:  # pragma: no cover
     ULTRALYTICS_IMPORT_ERROR = None
+
+
+def collect_extra_metrics(trainer) -> dict[str, object]:
+    debug_stats = getattr(getattr(trainer, "model", None), "last_srw_debug", None)
+    if isinstance(debug_stats, dict):
+        return {"srw_debug": debug_stats}
+    return {}
 
 
 def parse_args() -> argparse.Namespace:
@@ -51,46 +58,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--saliency-provider", type=str, default="saliency_head", choices=("saliency_head",))
     parser.add_argument("--teacher-dir", type=Path, default=None, help="Reserved for future offline teacher support.")
     parser.add_argument("--alpha-init", type=float, default=0.1, help="Initial SRW alpha.")
-    return parser.parse_args()
-
-
-def csv_last_row(path: Path) -> dict[str, Any]:
-    if not path.is_file():
-        return {}
-    with path.open("r", encoding="utf-8", newline="") as handle:
-        rows = list(csv.DictReader(handle))
-    if not rows:
-        return {}
-    metrics: dict[str, Any] = {}
-    for key, value in rows[-1].items():
-        if value is None:
-            continue
-        text = value.strip()
-        if not text:
-            continue
-        try:
-            metrics[key] = float(text)
-        except ValueError:
-            metrics[key] = text
-    return metrics
-
-
-def collect_train_metrics(model: Any, run_dir: Path) -> dict[str, Any]:
-    metrics: dict[str, Any] = {}
-    trainer = getattr(model, "trainer", None)
-    if trainer is not None:
-        for attr in ("best", "last", "save_dir", "fitness"):
-            value = getattr(trainer, attr, None)
-            if value is not None:
-                metrics[attr] = str(value) if isinstance(value, Path) else value
-        inner_model = getattr(trainer, "model", None)
-        debug_stats = getattr(inner_model, "last_srw_debug", None)
-        if isinstance(debug_stats, dict):
-            metrics["srw_debug"] = debug_stats
-    csv_metrics = csv_last_row(run_dir / "results.csv")
-    metrics["results_csv_last_row"] = csv_metrics
-    metrics.update(csv_metrics)
-    return metrics
+    return parse_args_with_optional_config(parser)
 
 
 def main() -> None:
@@ -130,6 +98,7 @@ def main() -> None:
         "workers": args.workers,
         "run_name": args.run_name,
         "output_root": str(output_root),
+        "config": namespace_to_config_reference(args),
         "target_layers": args.target_layers,
         "saliency_provider": args.saliency_provider,
         "teacher_dir": str(args.teacher_dir) if args.teacher_dir else None,
@@ -163,7 +132,11 @@ def main() -> None:
     model = YOLO(args.model)
     model.train(trainer=SRWOnlyDetectionTrainer, **train_kwargs)
 
-    metrics = collect_train_metrics(model=model, run_dir=run_dir)
+    metrics = collect_train_metrics(
+        model=model,
+        run_dir=run_dir,
+        extra_collector=collect_extra_metrics,
+    )
     save_run_metrics(run_dir, metrics)
     logger.info("SRW-only training finished.")
 

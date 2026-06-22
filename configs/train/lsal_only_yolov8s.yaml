@@ -9,7 +9,8 @@ device: null
 workers: null
 run_name: lsal_only_mse_seed0
 output_root: experiments/skyfusion
-target_layers: P3
+target_layers:
+  - P3
 saliency_provider: saliency_head
 loss_type: mse
 lambda_sal: 0.1

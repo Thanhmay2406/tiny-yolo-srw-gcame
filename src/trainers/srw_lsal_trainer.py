@@ -18,9 +18,10 @@ from src.losses.background_suppression import combined_energy_bg_loss
 from src.losses.energy_in_box import energy_in_box_loss
 from src.losses.saliency_alignment import get_saliency_loss
 from src.losses.size_aware import image_level_size_weight
-from src.models.layer_resolver import resolve_target_layer
 from src.models.srw import SRWModule
 from src.training.lambda_scheduler import LambdaScheduler, LambdaSchedulerConfig, save_lambda_curve
+from src.training.multiscale_srw import parse_scale_weights, parse_target_layers, resolve_scale_targets
+from src.training.teacher_alignment import TeacherAugmentationAudit, enforce_teacher_augmentation_policy
 from src.trainers.lsal_trainer import _infer_module_out_channels
 from src.xai.saliency_provider import SaliencyProvider
 from src.losses.saliency_alignment import mse_saliency_loss
@@ -66,6 +67,8 @@ class SRWLSalDetectionLoss(v8DetectionLoss):
         self.size_aware = bool(size_aware)
         self.size_weight_mode = str(size_weight_mode)
         self.size_weight_max = float(size_weight_max) if size_weight_max is not None else None
+        self.last_scale_losses: dict[str, float] = {}
+        self.last_teacher_scale_losses: dict[str, float] = {}
 
     def _image_weights(self, batch: dict[str, torch.Tensor]) -> torch.Tensor | None:
         if not getattr(self, "size_aware", False):
@@ -128,26 +131,79 @@ class SRWLSalDetectionLoss(v8DetectionLoss):
             )
         raise ValueError(f"Unsupported saliency loss type: {self.loss_type}")
 
+    def _compute_multiscale_losses(
+        self,
+        saliency_preds: dict[str, torch.Tensor],
+        scale_weights: dict[str, float],
+        batch: dict[str, torch.Tensor],
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        scale_losses: dict[str, torch.Tensor] = {}
+        weighted_losses: list[torch.Tensor] = []
+        for layer_name, saliency_pred in saliency_preds.items():
+            scale_loss = self._gt_saliency_loss(saliency_pred, batch)
+            scale_losses[layer_name] = scale_loss
+            weighted_losses.append(scale_loss * float(scale_weights[layer_name]))
+
+        if not weighted_losses:
+            raise ValueError("No saliency predictions available for SRW + L_sal loss computation.")
+        return torch.stack(weighted_losses).sum(), scale_losses
+
+    def _compute_multiscale_teacher_losses(
+        self,
+        saliency_preds: dict[str, torch.Tensor],
+        scale_weights: dict[str, float],
+        teacher_target: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        if teacher_target is None or self.beta_teacher <= 0.0:
+            zero = next(iter(saliency_preds.values())).new_zeros(())
+            return zero, {layer_name: zero for layer_name in saliency_preds}
+
+        scale_losses: dict[str, torch.Tensor] = {}
+        weighted_losses: list[torch.Tensor] = []
+        for layer_name, saliency_pred in saliency_preds.items():
+            resized_teacher = teacher_target
+            if tuple(resized_teacher.shape[-2:]) != tuple(saliency_pred.shape[-2:]):
+                resized_teacher = torch.nn.functional.interpolate(
+                    resized_teacher.float(),
+                    size=saliency_pred.shape[-2:],
+                    mode="bilinear",
+                    align_corners=False,
+                )
+            scale_loss = self.teacher_loss_fn(saliency_pred, resized_teacher)
+            scale_losses[layer_name] = scale_loss
+            weighted_losses.append(scale_loss * float(scale_weights[layer_name]))
+        return torch.stack(weighted_losses).sum(), scale_losses
+
     def loss(self, preds: dict[str, torch.Tensor], batch: dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
         det_loss, det_detach = super().loss(preds, batch)
-        saliency_pred = preds["saliency_pred"]
-        saliency_loss = self._gt_saliency_loss(saliency_pred, batch)
-        saliency_item = saliency_loss.unsqueeze(0) * saliency_pred.shape[0] * self.lambda_sal
+        saliency_preds = preds.get("saliency_preds")
+        if not isinstance(saliency_preds, dict) or not saliency_preds:
+            single_saliency = preds.get("saliency_pred")
+            if single_saliency is None:
+                raise KeyError("SRW + L_sal predictions must include 'saliency_pred' or 'saliency_preds'.")
+            saliency_preds = {"P3": single_saliency}
+        scale_weights = preds.get("scale_weights")
+        if not isinstance(scale_weights, dict) or not scale_weights:
+            scale_weights = {layer_name: 1.0 for layer_name in saliency_preds}
+
+        saliency_loss, scale_losses = self._compute_multiscale_losses(saliency_preds, scale_weights, batch)
+        first_saliency_pred = next(iter(saliency_preds.values()))
+        saliency_item = saliency_loss.unsqueeze(0) * first_saliency_pred.shape[0] * self.lambda_sal
+        self.last_scale_losses = {
+            layer_name: float(scale_loss.detach().cpu().item()) for layer_name, scale_loss in scale_losses.items()
+        }
 
         teacher_target = batch.get("teacher_saliency_mask")
-        if teacher_target is not None and tuple(teacher_target.shape[-2:]) != tuple(saliency_pred.shape[-2:]):
-            teacher_target = torch.nn.functional.interpolate(
-                teacher_target.float(),
-                size=saliency_pred.shape[-2:],
-                mode="bilinear",
-                align_corners=False,
-            )
-
-        if teacher_target is not None and self.beta_teacher > 0.0:
-            teacher_loss = self.teacher_loss_fn(saliency_pred, teacher_target)
-        else:
-            teacher_loss = saliency_pred.new_zeros(())
-        teacher_item = teacher_loss.unsqueeze(0) * saliency_pred.shape[0] * self.beta_teacher
+        teacher_loss, teacher_scale_losses = self._compute_multiscale_teacher_losses(
+            saliency_preds,
+            scale_weights,
+            teacher_target,
+        )
+        teacher_item = teacher_loss.unsqueeze(0) * first_saliency_pred.shape[0] * self.beta_teacher
+        self.last_teacher_scale_losses = {
+            layer_name: float(scale_loss.detach().cpu().item())
+            for layer_name, scale_loss in teacher_scale_losses.items()
+        }
 
         total_items = torch.cat([det_loss, saliency_item, teacher_item], dim=0)
         detached_items = torch.cat(
@@ -171,7 +227,8 @@ class SRWLSalDetectionModel(DetectionModel):
         ch: int = 3,
         nc: int | None = None,
         verbose: bool = True,
-        target_layer: str = "P3",
+        target_layer: str | list[str] = "P3",
+        scale_weights: list[float] | None = None,
         saliency_provider: str = "saliency_head",
         alpha_init: float = 0.1,
         loss_type: str = "mse",
@@ -189,7 +246,8 @@ class SRWLSalDetectionModel(DetectionModel):
         total_epochs: int = 100,
         sigma_ratio: float = 0.04,
     ) -> None:
-        self._srw_target_layer = target_layer
+        self._srw_target_layers = parse_target_layers(target_layer)
+        self._srw_scale_weights = parse_scale_weights(scale_weights, num_layers=len(self._srw_target_layers))
         self._srw_saliency_provider = saliency_provider
         self._srw_alpha_init = alpha_init
         self._srw_loss_type = loss_type
@@ -206,36 +264,45 @@ class SRWLSalDetectionModel(DetectionModel):
         self._srw_size_weight_max = size_weight_max
         self._srw_total_epochs = total_epochs
         self._srw_sigma_ratio = sigma_ratio
-        self._captured_saliency_pred: torch.Tensor | None = None
-        self._captured_gate_s: torch.Tensor | None = None
-        self._captured_gate_c: torch.Tensor | None = None
+        self._captured_saliency_preds: dict[str, torch.Tensor] = {}
+        self._captured_gate_s: dict[str, torch.Tensor] = {}
+        self._captured_gate_c: dict[str, torch.Tensor] = {}
         self._force_saliency_output = False
         self.last_srw_debug: dict[str, float] = {}
         super().__init__(cfg=cfg, ch=ch, nc=nc, verbose=verbose)
-        self.srw_target_name, self.srw_target_index = resolve_target_layer(self, target_layer)
-        feature_channels = _infer_module_out_channels(self.model[self.srw_target_index])
-        self.saliency_provider = SaliencyProvider(mode=saliency_provider, channels=feature_channels)
-        self.srw_module = SRWModule(channels=feature_channels, alpha_init=alpha_init)
+        self.scale_targets = resolve_scale_targets(self, self._srw_target_layers, self._srw_scale_weights)
+        self.srw_target_name = self.scale_targets[0].name
+        self.srw_target_index = self.scale_targets[0].index
+        self.scale_weight_map = {target.name: float(target.weight) for target in self.scale_targets}
+        self.scale_target_indices = {target.index: target.name for target in self.scale_targets}
+        self.saliency_providers = torch.nn.ModuleDict()
+        self.srw_modules = torch.nn.ModuleDict()
+        for target in self.scale_targets:
+            feature_channels = _infer_module_out_channels(self.model[target.index])
+            self.saliency_providers[target.name] = SaliencyProvider(mode=saliency_provider, channels=feature_channels)
+            self.srw_modules[target.name] = SRWModule(channels=feature_channels, alpha_init=alpha_init)
 
     def _inject_saliency(self, output):
-        if self._captured_saliency_pred is None:
+        if not self._captured_saliency_preds:
             return output
+        primary_layer = self.scale_targets[0].name
+        primary_saliency = self._captured_saliency_preds[primary_layer]
         if isinstance(output, dict):
             output = dict(output)
-            output["saliency_pred"] = self._captured_saliency_pred
-            if self._captured_gate_s is not None:
-                output["srw_gate_s"] = self._captured_gate_s
-            if self._captured_gate_c is not None:
-                output["srw_gate_c"] = self._captured_gate_c
+            output["saliency_pred"] = primary_saliency
+            output["saliency_preds"] = dict(self._captured_saliency_preds)
+            output["scale_weights"] = dict(self.scale_weight_map)
+            output["srw_gate_s"] = dict(self._captured_gate_s)
+            output["srw_gate_c"] = dict(self._captured_gate_c)
             return output
         if isinstance(output, tuple) and len(output) == 2 and isinstance(output[1], dict):
             pred, payload = output
             payload = dict(payload)
-            payload["saliency_pred"] = self._captured_saliency_pred
-            if self._captured_gate_s is not None:
-                payload["srw_gate_s"] = self._captured_gate_s
-            if self._captured_gate_c is not None:
-                payload["srw_gate_c"] = self._captured_gate_c
+            payload["saliency_pred"] = primary_saliency
+            payload["saliency_preds"] = dict(self._captured_saliency_preds)
+            payload["scale_weights"] = dict(self.scale_weight_map)
+            payload["srw_gate_s"] = dict(self._captured_gate_s)
+            payload["srw_gate_c"] = dict(self._captured_gate_c)
             return pred, payload
         raise TypeError("Unexpected YOLO output type while adding SRW + L_sal predictions.")
 
@@ -243,33 +310,38 @@ class SRWLSalDetectionModel(DetectionModel):
         y, dt, embeddings = [], [], []
         embed = frozenset(embed) if embed is not None else {-1}
         max_idx = max(embed)
-        target_index = getattr(self, "srw_target_index", None)
-        self._captured_saliency_pred = None
-        self._captured_gate_s = None
-        self._captured_gate_c = None
+        target_indices = getattr(self, "scale_target_indices", {})
+        self._captured_saliency_preds = {}
+        self._captured_gate_s = {}
+        self._captured_gate_c = {}
+        self.last_srw_debug = {}
         for m in self.model:
             if m.f != -1:
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]
             if profile:
                 self._profile_one_layer(m, x, dt)
             x = m(x)
-            if target_index is not None and m.i == target_index and isinstance(x, torch.Tensor):
-                saliency_pred = self.saliency_provider(x)
-                x, gate_s, gate_c, alpha = self.srw_module(x, saliency_pred, return_gates=True)
-                self._captured_saliency_pred = saliency_pred
-                self._captured_gate_s = gate_s
-                self._captured_gate_c = gate_c
-                self.last_srw_debug = {
-                    "gate_s_mean": float(gate_s.mean().detach().cpu().item()),
-                    "gate_s_std": float(gate_s.std().detach().cpu().item()),
-                    "gate_c_mean": float(gate_c.mean().detach().cpu().item()),
-                    "gate_c_std": float(gate_c.std().detach().cpu().item()),
-                    "saliency_min": float(saliency_pred.min().detach().cpu().item()),
-                    "saliency_max": float(saliency_pred.max().detach().cpu().item()),
-                    "saliency_mean": float(saliency_pred.mean().detach().cpu().item()),
-                    "saliency_std": float(saliency_pred.std().detach().cpu().item()),
-                    "alpha": float(alpha.detach().cpu().item()),
-                }
+            if m.i in target_indices and isinstance(x, torch.Tensor):
+                layer_name = target_indices[m.i]
+                saliency_pred = self.saliency_providers[layer_name](x)
+                x, gate_s, gate_c, alpha = self.srw_modules[layer_name](x, saliency_pred, return_gates=True)
+                self._captured_saliency_preds[layer_name] = saliency_pred
+                self._captured_gate_s[layer_name] = gate_s
+                self._captured_gate_c[layer_name] = gate_c
+                self.last_srw_debug.update(
+                    {
+                        f"l_sal_weight_{layer_name}": float(self.scale_weight_map[layer_name]),
+                        f"gate_s_mean_{layer_name}": float(gate_s.mean().detach().cpu().item()),
+                        f"gate_s_std_{layer_name}": float(gate_s.std(unbiased=False).detach().cpu().item()),
+                        f"gate_c_mean_{layer_name}": float(gate_c.mean().detach().cpu().item()),
+                        f"gate_c_std_{layer_name}": float(gate_c.std(unbiased=False).detach().cpu().item()),
+                        f"saliency_min_{layer_name}": float(saliency_pred.min().detach().cpu().item()),
+                        f"saliency_max_{layer_name}": float(saliency_pred.max().detach().cpu().item()),
+                        f"saliency_mean_{layer_name}": float(saliency_pred.mean().detach().cpu().item()),
+                        f"saliency_std_{layer_name}": float(saliency_pred.std(unbiased=False).detach().cpu().item()),
+                        f"alpha_{layer_name}": float(alpha.detach().cpu().item()),
+                    }
+                )
             y.append(x if m.i in self.save else None)
             if visualize:
                 from ultralytics.utils.plotting import feature_visualization
@@ -280,7 +352,7 @@ class SRWLSalDetectionModel(DetectionModel):
                 if m.i == max_idx:
                     return torch.unbind(torch.cat(embeddings, 1), dim=0)
 
-        if (self.training or self._force_saliency_output) and self._captured_saliency_pred is not None:
+        if (self.training or self._force_saliency_output) and self._captured_saliency_preds:
             x = self._inject_saliency(x)
         return x
 
@@ -337,10 +409,12 @@ class SRWLSalDetectionTrainer(DetectionTrainer):
     def __init__(self, cfg=None, overrides: dict[str, Any] | None = None, _callbacks: dict | None = None):
         overrides = dict(overrides or {})
         self.custom_overrides = {
-            "target_layers": overrides.pop("target_layers", "P3"),
+            "target_layers": parse_target_layers(overrides.pop("target_layers", "P3")),
+            "scale_weights": overrides.pop("scale_weights", None),
             "saliency_provider": overrides.pop("saliency_provider", "saliency_head"),
             "teacher_dir": overrides.pop("teacher_dir", None),
             "beta_teacher": overrides.pop("beta_teacher", 0.0),
+            "teacher_augmentation_policy": overrides.pop("teacher_augmentation_policy", "error"),
             "loss_type": overrides.pop("loss_type", "mse"),
             "lambda_sal": overrides.pop("lambda_sal", 0.1),
             "lambda_schedule": overrides.pop("lambda_schedule", "constant"),
@@ -356,6 +430,10 @@ class SRWLSalDetectionTrainer(DetectionTrainer):
             "alpha_init": overrides.pop("alpha_init", 0.1),
         }
         super().__init__(cfg=cfg or DEFAULT_CFG, overrides=overrides, _callbacks=_callbacks)
+        self.custom_overrides["scale_weights"] = parse_scale_weights(
+            self.custom_overrides["scale_weights"],
+            num_layers=len(self.custom_overrides["target_layers"]),
+        )
         for key, value in self.custom_overrides.items():
             setattr(self.args, key, value)
         self._data_yaml_path = Path(str(self.args.data)).expanduser().resolve()
@@ -371,6 +449,16 @@ class SRWLSalDetectionTrainer(DetectionTrainer):
             if teacher_dir
             else None
         )
+        self.teacher_augmentation_audit = TeacherAugmentationAudit(
+            applied_policy=str(getattr(self.args, "teacher_augmentation_policy", "error")),
+            incompatible_keys=[],
+            disabled_keys=[],
+        )
+        if self.teacher_provider is not None and beta_teacher > 0.0:
+            self.teacher_augmentation_audit = enforce_teacher_augmentation_policy(
+                self.args,
+                policy=str(getattr(self.args, "teacher_augmentation_policy", "error")),
+            )
         self.lambda_history: list[dict[str, float]] = []
 
     def _validator_args(self):
@@ -410,7 +498,8 @@ class SRWLSalDetectionTrainer(DetectionTrainer):
             nc=self.data["nc"],
             ch=self.data["channels"],
             verbose=verbose,
-            target_layer=str(getattr(self.args, "target_layers", "P3")),
+            target_layer=getattr(self.args, "target_layers", ["P3"]),
+            scale_weights=getattr(self.args, "scale_weights", None),
             saliency_provider=str(getattr(self.args, "saliency_provider", "saliency_head")),
             alpha_init=float(getattr(self.args, "alpha_init", 0.1)),
             loss_type=str(getattr(self.args, "loss_type", "mse")),
@@ -455,6 +544,22 @@ class SRWLSalDetectionTrainer(DetectionTrainer):
         merged_metrics = dict(metrics)
         merged_metrics["lambda_sal"] = lambda_sal
         merged_metrics["beta_teacher"] = beta_teacher
+        merged_metrics["teacher_incompatible_augmentation_count"] = float(
+            len(self.teacher_augmentation_audit.incompatible_keys)
+        )
+        merged_metrics["teacher_disabled_augmentation_count"] = float(
+            len(self.teacher_augmentation_audit.disabled_keys)
+        )
+        if criterion is not None:
+            for layer_name, scale_loss in getattr(criterion, "last_scale_losses", {}).items():
+                merged_metrics[f"train/l_sal_{layer_name}"] = scale_loss
+            for layer_name, scale_loss in getattr(criterion, "last_teacher_scale_losses", {}).items():
+                merged_metrics[f"train/teacher_l_sal_{layer_name}"] = scale_loss
+        model_debug = getattr(getattr(self, "model", None), "last_srw_debug", {})
+        if isinstance(model_debug, dict):
+            for key, value in model_debug.items():
+                if key.startswith(("gate_s_mean_", "gate_c_mean_", "alpha_", "l_sal_weight_")):
+                    merged_metrics[f"train/{key}"] = value
         super().save_metrics(merged_metrics)
         self.lambda_history.append({"epoch": float(self.epoch + 1), "lambda_sal": lambda_sal})
         save_lambda_curve(

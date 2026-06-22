@@ -65,11 +65,11 @@ class SRWOnlyDetectionModel(DetectionModel):
                 x, gate_s, gate_c, alpha = self.srw_module(x, saliency, return_gates=True)
                 self.last_srw_debug = {
                     "gate_s_mean": float(gate_s.mean().detach().cpu().item()),
-                    "gate_s_std": float(gate_s.std().detach().cpu().item()),
+                    "gate_s_std": float(gate_s.std(unbiased=False).detach().cpu().item()),
                     "gate_c_mean": float(gate_c.mean().detach().cpu().item()),
-                    "gate_c_std": float(gate_c.std().detach().cpu().item()),
+                    "gate_c_std": float(gate_c.std(unbiased=False).detach().cpu().item()),
                     "saliency_mean": float(saliency.mean().detach().cpu().item()),
-                    "saliency_std": float(saliency.std().detach().cpu().item()),
+                    "saliency_std": float(saliency.std(unbiased=False).detach().cpu().item()),
                     "alpha": float(alpha.detach().cpu().item()),
                 }
             y.append(x if m.i in self.save else None)

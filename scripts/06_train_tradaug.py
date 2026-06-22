@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse
-import csv
 import os
 import sys
 from pathlib import Path
@@ -11,10 +10,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.utils.cli_config import namespace_to_config_reference, parse_args_with_optional_config
 from src.utils.io import ensure_dir, load_yaml
 from src.utils.logging import save_run_config, save_run_metrics, setup_logging
 from src.utils.runtime import configure_runtime_environment
 from src.utils.seed import seed_everything
+from src.utils.train_runs import collect_train_metrics
 
 configure_runtime_environment()
 
@@ -57,46 +58,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--scale", type=float, default=0.5, help="Random scale factor.")
     parser.add_argument("--translate", type=float, default=0.1, help="Random translation factor.")
     parser.add_argument("--fliplr", type=float, default=0.5, help="Left-right flip probability.")
-    return parser.parse_args()
-
-
-def csv_last_row(path: Path) -> dict[str, Any]:
-    if not path.is_file():
-        return {}
-    with path.open("r", encoding="utf-8", newline="") as handle:
-        rows = list(csv.DictReader(handle))
-    if not rows:
-        return {}
-    metrics: dict[str, Any] = {}
-    for key, value in rows[-1].items():
-        if value is None:
-            continue
-        text = value.strip()
-        if not text:
-            continue
-        try:
-            metrics[key] = float(text)
-        except ValueError:
-            metrics[key] = text
-    return metrics
-
-
-def collect_train_metrics(train_result: Any, model: Any, run_dir: Path) -> dict[str, Any]:
-    metrics: dict[str, Any] = {}
-    if isinstance(train_result, dict):
-        metrics.update(train_result)
-    results_dict = getattr(train_result, "results_dict", None)
-    if isinstance(results_dict, dict):
-        metrics.update(results_dict)
-    trainer = getattr(model, "trainer", None)
-    if trainer is not None:
-        for attr in ("best", "last", "save_dir"):
-            value = getattr(trainer, attr, None)
-            if value is not None:
-                metrics[attr] = str(value)
-    metrics["results_csv_last_row"] = csv_last_row(run_dir / "results.csv")
-    metrics.update(metrics["results_csv_last_row"])
-    return metrics
+    return parse_args_with_optional_config(parser)
 
 
 def main() -> None:
@@ -135,6 +97,7 @@ def main() -> None:
         "workers": args.workers,
         "run_name": args.run_name,
         "output_root": str(output_root),
+        "config": namespace_to_config_reference(args),
         "augmentation": {
             "mosaic": args.mosaic,
             "mixup": args.mixup,
@@ -179,7 +142,7 @@ def main() -> None:
 
     model = YOLO(args.model)
     train_result = model.train(**train_kwargs)
-    metrics = collect_train_metrics(train_result=train_result, model=model, run_dir=run_dir)
+    metrics = collect_train_metrics(model=model, run_dir=run_dir, train_result=train_result)
     save_run_metrics(run_dir, metrics)
     logger.info("Traditional augmentation baseline finished.")
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -65,6 +66,10 @@ def overlay_mask(image_bgr: np.ndarray, saliency: np.ndarray) -> np.ndarray:
     return cv2.addWeighted(image_bgr, 0.65, heat, 0.35, 0.0)
 
 
+def safe_name(image_id: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]+", "__", image_id)
+
+
 def main() -> None:
     args = parse_args()
     output_dir = ensure_dir(args.output_dir)
@@ -73,6 +78,7 @@ def main() -> None:
     capture = ForwardCapture(model.model.model[target_index])
     samples = list_split_samples(args.data, split=args.split, limit=args.num_samples)
     report_items: list[dict[str, object]] = []
+    provider: SaliencyProvider | None = None
 
     try:
         for sample in samples:
@@ -90,11 +96,12 @@ def main() -> None:
             gt_mask_np = create_gaussian_bbox_mask(labels, image_size=(image_bgr.shape[0], image_bgr.shape[1]))
             gt_mask_tensor = torch.from_numpy(gt_mask_np).unsqueeze(0).unsqueeze(0)
 
-            provider = SaliencyProvider(
-                mode=args.saliency_provider,
-                channels=int(feature_map.shape[1]),
-                teacher_dir=args.teacher_dir,
-            )
+            if provider is None:
+                provider = SaliencyProvider(
+                    mode=args.saliency_provider,
+                    channels=int(feature_map.shape[1]),
+                    teacher_dir=args.teacher_dir,
+                )
             saliency = provider(
                 feature_map,
                 image_ids=[str(sample["image_id"])],
@@ -105,7 +112,7 @@ def main() -> None:
             saliency_np = np.clip(saliency_np, 0.0, 1.0)
             overlay = overlay_mask(image_bgr, saliency_np)
 
-            base_name = Path(str(sample["image_id"])).stem
+            base_name = safe_name(str(sample["image_id"]))
             cv2.imwrite(str(output_dir / f"{base_name}_overlay.jpg"), overlay)
             cv2.imwrite(str(output_dir / f"{base_name}_gt_mask.jpg"), (gt_mask_np * 255.0).astype(np.uint8))
 

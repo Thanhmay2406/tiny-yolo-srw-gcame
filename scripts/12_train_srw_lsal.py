@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import os
 import sys
 from pathlib import Path
@@ -18,9 +17,13 @@ from src.utils.runtime import configure_runtime_environment
 configure_runtime_environment()
 
 from src.trainers.srw_lsal_trainer import SRWLSalDetectionTrainer
+from src.training.multiscale_srw import parse_scale_weights, parse_target_layers
+from src.training.teacher_alignment import snapshot_teacher_augmentation_values
+from src.utils.cli_config import namespace_to_config_reference, parse_args_with_optional_config
 from src.utils.io import ensure_dir
 from src.utils.logging import save_run_config, save_run_metrics, setup_logging
 from src.utils.seed import seed_everything
+from src.utils.train_runs import collect_train_metrics
 
 try:
     from ultralytics import YOLO
@@ -29,6 +32,20 @@ except ImportError as exc:  # pragma: no cover
     ULTRALYTICS_IMPORT_ERROR = exc
 else:  # pragma: no cover
     ULTRALYTICS_IMPORT_ERROR = None
+
+
+def collect_extra_metrics(trainer) -> dict[str, object]:
+    metrics: dict[str, object] = {}
+    teacher_audit = getattr(trainer, "teacher_augmentation_audit", None)
+    if teacher_audit is not None:
+        metrics["teacher_augmentation_policy"] = getattr(teacher_audit, "applied_policy", None)
+        metrics["teacher_incompatible_augmentations"] = list(getattr(teacher_audit, "incompatible_keys", []))
+        metrics["teacher_disabled_augmentations"] = list(getattr(teacher_audit, "disabled_keys", []))
+
+    debug_stats = getattr(getattr(trainer, "model", None), "last_srw_debug", None)
+    if isinstance(debug_stats, dict):
+        metrics["srw_debug"] = debug_stats
+    return metrics
 
 
 def parse_args() -> argparse.Namespace:
@@ -47,10 +64,29 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workers", type=int, default=None, help="Optional dataloader worker count.")
     parser.add_argument("--run-name", type=str, required=True, help="Run directory name under experiments/skyfusion.")
     parser.add_argument("--output-root", type=Path, default=Path("experiments/skyfusion"), help="Output root.")
-    parser.add_argument("--target-layers", type=str, default="P3", help="Target FPN level, default P3.")
+    parser.add_argument(
+        "--target-layers",
+        nargs="+",
+        default=["P3"],
+        help="One or more target FPN levels, e.g. P3 or P3 P4 P5.",
+    )
+    parser.add_argument(
+        "--scale-weights",
+        nargs="+",
+        type=float,
+        default=None,
+        help="Optional per-scale loss weights aligned with --target-layers.",
+    )
     parser.add_argument("--saliency-provider", type=str, default="saliency_head", choices=("saliency_head",))
     parser.add_argument("--teacher-dir", type=Path, default=None, help="Optional offline teacher manifest directory.")
     parser.add_argument("--beta-teacher", type=float, default=0.0, help="Teacher loss weight.")
+    parser.add_argument(
+        "--teacher-augmentation-policy",
+        type=str,
+        default="error",
+        choices=("error", "disable_incompatible"),
+        help="How to handle augmentations that break offline teacher spatial alignment.",
+    )
     parser.add_argument("--loss-type", type=str, default="mse", choices=("mse", "bce", "dice", "energy", "energy_bg"))
     parser.add_argument("--lambda-sal", type=float, default=0.1, help="Weight applied to GT saliency alignment loss.")
     parser.add_argument(
@@ -76,51 +112,35 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--size-weight-max", type=float, default=None, help="Optional clamp for size-aware weights.")
     parser.add_argument("--sigma-ratio", type=float, default=0.04, help="Gaussian sigma ratio for GT saliency masks.")
     parser.add_argument("--alpha-init", type=float, default=0.1, help="Initial SRW alpha.")
-    return parser.parse_args()
+    return parse_args_with_optional_config(parser)
 
 
-def csv_last_row(path: Path) -> dict[str, Any]:
-    if not path.is_file():
-        return {}
-    with path.open("r", encoding="utf-8", newline="") as handle:
-        rows = list(csv.DictReader(handle))
-    if not rows:
-        return {}
-    metrics: dict[str, Any] = {}
-    for key, value in rows[-1].items():
-        if value is None:
-            continue
-        text = value.strip()
-        if not text:
-            continue
-        try:
-            metrics[key] = float(text)
-        except ValueError:
-            metrics[key] = text
-    return metrics
-
-
-def collect_train_metrics(model: Any, run_dir: Path) -> dict[str, Any]:
-    metrics: dict[str, Any] = {}
+def collect_effective_run_config(model: Any, base_config: dict[str, Any]) -> dict[str, Any]:
+    effective = dict(base_config)
     trainer = getattr(model, "trainer", None)
-    if trainer is not None:
-        for attr in ("best", "last", "save_dir", "fitness"):
-            value = getattr(trainer, attr, None)
-            if value is not None:
-                metrics[attr] = str(value) if isinstance(value, Path) else value
-        inner_model = getattr(trainer, "model", None)
-        debug_stats = getattr(inner_model, "last_srw_debug", None)
-        if isinstance(debug_stats, dict):
-            metrics["srw_debug"] = debug_stats
-    csv_metrics = csv_last_row(run_dir / "results.csv")
-    metrics["results_csv_last_row"] = csv_metrics
-    metrics.update(csv_metrics)
-    return metrics
+    if trainer is None:
+        return effective
+
+    teacher_audit = getattr(trainer, "teacher_augmentation_audit", None)
+    if teacher_audit is not None:
+        effective["teacher_augmentation_policy"] = getattr(teacher_audit, "applied_policy", None)
+        effective["teacher_incompatible_augmentations"] = list(getattr(teacher_audit, "incompatible_keys", []))
+        effective["teacher_disabled_augmentations"] = list(getattr(teacher_audit, "disabled_keys", []))
+
+    trainer_args = getattr(trainer, "args", None)
+    if trainer_args is not None:
+        effective["effective_teacher_augmentations"] = snapshot_teacher_augmentation_values(trainer_args)
+        effective["effective_target_layers"] = list(getattr(trainer_args, "target_layers", effective["target_layers"]))
+        effective["effective_scale_weights"] = list(getattr(trainer_args, "scale_weights", effective["scale_weights"]))
+    return effective
 
 
 def main() -> None:
     args = parse_args()
     logger = setup_logging()
+
+    args.target_layers = parse_target_layers(args.target_layers)
+    args.scale_weights = parse_scale_weights(args.scale_weights, num_layers=len(args.target_layers))
 
     if YOLO is None:  # pragma: no cover
         raise SystemExit(
@@ -161,10 +181,13 @@ def main() -> None:
         "workers": args.workers,
         "run_name": args.run_name,
         "output_root": str(output_root),
-        "target_layers": args.target_layers,
+        "config": namespace_to_config_reference(args),
+        "target_layers": list(args.target_layers),
+        "scale_weights": list(args.scale_weights),
         "saliency_provider": args.saliency_provider,
         "teacher_dir": str(teacher_dir) if teacher_dir else None,
         "beta_teacher": args.beta_teacher,
+        "teacher_augmentation_policy": args.teacher_augmentation_policy,
         "loss_type": args.loss_type,
         "lambda_sal": args.lambda_sal,
         "lambda_schedule": args.lambda_schedule,
@@ -191,10 +214,12 @@ def main() -> None:
         "project": str(output_root),
         "name": args.run_name,
         "exist_ok": True,
-        "target_layers": args.target_layers,
+        "target_layers": list(args.target_layers),
+        "scale_weights": list(args.scale_weights),
         "saliency_provider": args.saliency_provider,
         "teacher_dir": str(teacher_dir) if teacher_dir else None,
         "beta_teacher": args.beta_teacher,
+        "teacher_augmentation_policy": args.teacher_augmentation_policy,
         "loss_type": args.loss_type,
         "lambda_sal": args.lambda_sal,
         "lambda_schedule": args.lambda_schedule,
@@ -220,7 +245,13 @@ def main() -> None:
     model = YOLO(args.model)
     model.train(trainer=SRWLSalDetectionTrainer, **train_kwargs)
 
-    metrics = collect_train_metrics(model=model, run_dir=run_dir)
+    effective_config = collect_effective_run_config(model=model, base_config=config)
+    save_run_config(run_dir, effective_config)
+    metrics = collect_train_metrics(
+        model=model,
+        run_dir=run_dir,
+        extra_collector=collect_extra_metrics,
+    )
     save_run_metrics(run_dir, metrics)
     logger.info("SRW + L_sal training finished.")
 

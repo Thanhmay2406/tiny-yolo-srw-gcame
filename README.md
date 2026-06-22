@@ -17,32 +17,6 @@ The repository now covers the baseline and several post-baseline debug phases fr
 - `scripts/12_train_srw_lsal.py`: joint `SRW + L_sal` training with optional offline teacher loss.
 - Phase 13 lambda scheduling is implemented for `scripts/12_train_srw_lsal.py`.
 
-## Current Repository Structure
-
-```text
-.
-|-- AGENTS.md
-|-- README.md
-|-- requirements.txt
-|-- scripts/
-|   |-- 00_env_check.py
-|-- src/
-|   |-- utils/
-|       |-- device.py
-|       |-- io.py
-|       |-- logging.py
-|       |-- paths.py
-|       |-- seed.py
-|-- kaggle/
-|   |-- 00_bootstrap_kaggle.sh
-|-- data/
-|   |-- SkyFusion/
-|   |-- SkyFusion_yolo/
-|   |-- dataset-metadata.json
-|-- experiments/
-|-- paper/
-```
-
 ## Dataset Notes
 
 The Kaggle dataset currently includes both:
@@ -66,6 +40,24 @@ Install the project requirements with:
 ```bash
 pip install -r requirements.txt
 ```
+
+## Config-First Runs
+
+Core training scripts support `--config <yaml>` and let explicit CLI flags override YAML values.
+
+Example:
+
+```bash
+python scripts/12_train_srw_lsal.py \
+  --config configs/train/srw_lsal_teacher_safe_yolov8s.yaml \
+  --run-name srw_lsal_p3_teacher_safe_seed0
+```
+
+More docs:
+
+- [Docs Index](/home/thanhmay/workspace/tiny-yolo-srw-gcame/docs/README.md:1)
+- [Teacher-Safe Runbook](/home/thanhmay/workspace/tiny-yolo-srw-gcame/docs/runbooks/teacher_safe_runs.md:1)
+- [Latest Phase 14 Handoff](/home/thanhmay/workspace/tiny-yolo-srw-gcame/docs/handoffs/project_handoff_2026-06-21_phase14.md:1)
 
 ## Kaggle Quickstart
 
@@ -155,61 +147,14 @@ It prints:
 - every experiment must save config and metrics
 - baseline training, when added later, must not import SRW or `L_sal`
 
-## Post-Baseline Commands
+Offline teacher note:
 
-Traditional augmentation baseline:
+- If you set `--beta-teacher > 0`, the trainer now treats mosaic, mixup, copy-paste, flips, and geometric warps as incompatible with precomputed teacher saliency.
+- Default behavior is `--teacher-augmentation-policy error` to fail fast instead of training with misaligned teacher masks.
+- Use `--teacher-augmentation-policy disable_incompatible` only when you intentionally want the trainer to zero those augmentations for a teacher-safe run.
+- When teacher mode is active, the final run `config.yaml` is rewritten with the effective teacher policy and effective augmentation values after trainer initialization.
 
-```bash
-python scripts/06_train_tradaug.py \
-  --data "$SKYFUSION_DATA" \
-  --epochs 100 \
-  --imgsz 640 \
-  --batch 16 \
-  --seed 0 \
-  --run-name tradaug_yolov8s_seed0
-```
-
-GT saliency debug:
-
-```bash
-python scripts/07_debug_gt_saliency.py \
-  --data "$SKYFUSION_DATA" \
-  --split train \
-  --num-samples 16 \
-  --output-dir experiments/skyfusion/debug_gt_saliency
-```
-
-Saliency provider debug:
-
-```bash
-python scripts/08_debug_xai_saliency.py \
-  --data "$SKYFUSION_DATA" \
-  --split valid \
-  --target-layers P3 \
-  --saliency-provider saliency_head \
-  --weights yolov8s.pt \
-  --output-dir experiments/skyfusion/debug_saliency_head
-```
-
-Offline teacher precompute:
-
-```bash
-python scripts/08b_precompute_xai_teacher.py \
-  --data "$SKYFUSION_DATA" \
-  --weights experiments/skyfusion/baseline_yolov8s/weights/best.pt \
-  --split train \
-  --target-layers P3 \
-  --xai-method gradcam_like \
-  --output-dir experiments/skyfusion/xai_teacher/baseline_p3_train
-```
-
-SRW debug:
-
-```bash
-python scripts/09_debug_srw_shapes.py --from-yolo --model yolov8s.yaml --target-layers P3
-```
-
-Joint `SRW + L_sal`:
+Teacher-safe `SRW + L_sal`:
 
 ```bash
 python scripts/12_train_srw_lsal.py \
@@ -219,14 +164,20 @@ python scripts/12_train_srw_lsal.py \
   --imgsz 640 \
   --batch 16 \
   --seed 0 \
-  --run-name srw_lsal_p3_mse_seed0 \
+  --run-name srw_lsal_p3_teacher_safe_seed0 \
   --target-layers P3 \
+  --teacher-dir experiments/skyfusion/xai_teacher/baseline_p3_train \
+  --beta-teacher 0.1 \
+  --teacher-augmentation-policy disable_incompatible \
   --loss-type mse \
-  --lambda-sal 0.1 \
+  --lambda-schedule warmup_cosine_decay \
+  --lambda-max 0.2 \
+  --lambda-min 0.01 \
+  --warmup-epochs 5 \
   --alpha-init 0.1
 ```
 
-Joint `SRW + L_sal` with lambda scheduling:
+Optional multi-scale `SRW + L_sal`:
 
 ```bash
 python scripts/12_train_srw_lsal.py \
@@ -236,8 +187,33 @@ python scripts/12_train_srw_lsal.py \
   --imgsz 640 \
   --batch 16 \
   --seed 0 \
-  --run-name srw_lsal_p3_warmup_decay_seed0 \
-  --target-layers P3 \
+  --run-name srw_lsal_multiscale_seed0 \
+  --target-layers P3 P4 P5 \
+  --scale-weights 1.0 0.5 0.25 \
+  --loss-type mse \
+  --lambda-schedule warmup_cosine_decay \
+  --lambda-max 0.2 \
+  --lambda-min 0.01 \
+  --warmup-epochs 5 \
+  --alpha-init 0.1
+```
+
+Teacher-safe multi-scale `SRW + L_sal`:
+
+```bash
+python scripts/12_train_srw_lsal.py \
+  --data "$SKYFUSION_DATA" \
+  --model yolov8s.pt \
+  --epochs 100 \
+  --imgsz 640 \
+  --batch 16 \
+  --seed 0 \
+  --run-name srw_lsal_multiscale_teacher_safe_seed0 \
+  --target-layers P3 P4 P5 \
+  --scale-weights 1.0 0.5 0.25 \
+  --teacher-dir experiments/skyfusion/xai_teacher/baseline_p3_train \
+  --beta-teacher 0.1 \
+  --teacher-augmentation-policy disable_incompatible \
   --loss-type mse \
   --lambda-schedule warmup_cosine_decay \
   --lambda-max 0.2 \

@@ -1,0 +1,14 @@
+.venv/
+.pytest_cache/
+
+__pycache__/
+*.py[cod]
+
+experiments/skyfusion/
+!experiments/.gitkeep
+
+data/SkyFusion/
+data/SkyFusion_yolo/
+data/YOLO_format/
+
+.DS_Store
