@@ -117,9 +117,10 @@ def main() -> None:
     logger.info("Detection evaluation output: %s", output_dir)
 
     model = YOLO(args.weights)
+    ultralytics_split = "val" if args.split == "valid" else args.split
     val_kwargs: dict[str, Any] = {
         "data": str(data_yaml),
-        "split": args.split,
+        "split": ultralytics_split,
         "imgsz": args.imgsz,
         "batch": args.batch,
         "workers": args.workers,
