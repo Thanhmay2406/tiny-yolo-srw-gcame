@@ -1,0 +1,35 @@
+data: /kaggle/input/datasets/thanhmay2406/dataset-for-research/SkyFusion_yolo/data.yaml
+model: yolov8s-p2.yaml
+epochs: 100
+patience: 50
+imgsz: 640
+batch: 16
+seed: 0
+device: null
+workers: null
+run_name: srw_lsal_p2p3_energy_bg_sizeaware_seed0
+output_root: experiments/skyfusion
+target_layers:
+  - P2
+  - P3
+saliency_layer_weights:
+  P2: 0.6
+  P3: 0.4
+saliency_provider: saliency_head
+teacher_dir: null
+beta_teacher: 0.0
+teacher_augmentation_policy: error
+loss_type: energy_bg
+lambda_sal: 0.1
+lambda_schedule: warmup_cosine_decay
+lambda_max: 0.2
+lambda_min: 0.01
+warmup_epochs: 5
+beta_bg: 0.5
+dilation_radius: 3
+size_aware: true
+size_weight_mode: log_inverse
+size_weight_max: 5.0
+sigma_ratio: 0.04
+alpha_init: 0.1
+notes: "V2 tiny-aware candidate. Tests whether P2+P3 plus energy_bg preserves overall mAP while improving tiny recall."
