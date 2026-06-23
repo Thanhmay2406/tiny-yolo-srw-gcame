@@ -1,4 +1,14 @@
-# G-CAME-guided SRW YOLO cho Tiny Object Detection — SkyFusion-only Kaggle Roadmap
+# Saliency-guided SRW YOLO cho Tiny Object Detection — SkyFusion-only Kaggle Roadmap
+
+> Status note, 2026-06-23:
+> This roadmap contains older planning notes and may reference outdated dataset slugs or scripts.
+> For the current source of truth, use:
+> - `docs/research_positioning_vietnamese.md`
+> - `docs/research_results_2026-06-23.md`
+> - `docs/experiment_design_v2_tiny_aware_srw_lsal.md`
+> - `docs/runbooks/run_v2_tiny_aware_experiments.md`
+> Current runnable saliency sources in the evidence-backed pipeline are `saliency_head`, `gradcam_like` debug/eval paths, and optional offline teacher support.
+> `G-CAME` is not the production implementation behind the current reported evidence.
 
 > **Phiên bản điều chỉnh:** SkyFusion-only / Kaggle-first  
 > **Dataset thử nghiệm duy nhất hiện tại:** SkyFusion tại `/kaggle/input/datasets/thanhmay2406/dataset-for-research/SkyFusion_yolo` trên Kaggle  
@@ -6,11 +16,23 @@
 > **Môi trường ưu tiên:** Kaggle Notebook + Kaggle GPU  
 > **Đóng góp chính:** `SRW module` — Saliency-guided ReWeighting module đặt sau YOLO FPN neck  
 > **Đóng góp hỗ trợ:** `L_sal` — saliency alignment loss giữa model saliency và Gaussian GT mask  
-> **XAI branch:** G-CAME hoặc Grad-CAM-like extractor, bắt đầu bằng Grad-CAM-like ổn định trước  
+> **XAI branch:** Grad-CAM-like debug/eval support trước; `G-CAME` chỉ nên hiểu là future/placeholder direction trong roadmap cũ  
 > **Mục tiêu trước mắt:** không ôm nhiều benchmark; chỉ dùng SkyFusion để kiểm chứng pipeline, debug SRW, debug `L_sal`, và chạy ablation tối thiểu.
 > **Cập nhật dataset structure:** roadmap này dùng đúng `/kaggle/input/datasets/thanhmay2406/dataset-for-research/SkyFusion` cho COCO gốc nếu cần và `/kaggle/input/datasets/thanhmay2406/dataset-for-research/SkyFusion_yolo` cho YOLO train/eval; split validation là `valid`.
 
 ---
+
+## Current research positioning note
+
+Roadmap này vẫn hữu ích để triển khai pipeline, nhưng trạng thái thực nghiệm hiện tại của repo nên được diễn giải thận trọng:
+
+```text
+- Chua co bang chung du de claim rang phuong phap da cai thien tiny object detection mot cach chac chan.
+- Run detection tot nhat hien tai va run XAI tot nhat hien tai khong trung nhau.
+- Recall_tiny chua vuot baseline trong run detection tot nhat da danh gia.
+- Huong claim an toan hon la framework nay ho tro phan tich trade-off giua detection performance, tiny-object recall va saliency localization quality.
+- Multi-seed va error analysis la bat buoc truoc khi dua ra ket luan manh hon.
+```
 
 
 ## Cập nhật mới nhất theo đường dẫn bạn chốt

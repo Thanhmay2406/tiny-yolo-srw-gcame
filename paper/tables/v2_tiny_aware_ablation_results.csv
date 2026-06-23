@@ -1,0 +1,9 @@
+group,run,model,target_layers,loss,size_aware,mAP50,mAP50-95,precision,recall,recall_tiny,recall_small,xai_pointing_game,energy_in_box,bg_energy_ratio,notes
+P3 baseline,baseline_yolov8s,yolov8s.pt,default,none,no,0.6567373746880135,0.35861499970281036,0.7093927765899083,0.6669156919030327,0.7573862748163201,0.9402985074626866,,,,Existing seed0 baseline
+Traditional aug,tradaug_yolov8s_seed0,yolov8s.pt,default,none,no,0.6682796095363835,0.360453513754675,0.7416911365373514,0.6479728072303529,0.7487884946068469,0.9402985074626866,,,,Existing seed0 augmentation baseline
+P3 best detection,srw_lsal_energy_bg_seed0,yolov8s.pt,P3,energy_bg,False,0.6739069709005417,0.3661881565385426,0.7298739523015353,0.6705093374398342,0.7478505549476318,0.9375345494748479,0.011135857461024499,0.017240189455773127,0.9827598105442269,Existing best mAP candidate
+P2 baseline,baseline_yolov8s_p2_seed0,MISSING,default,none,no,,,,,,,,,,Architecture effect
+V2 main,srw_lsal_p2p3_mse_sizeaware_seed0,MISSING,default,MISSING,MISSING,,,,,,,,,,Main tiny-aware candidate
+V2 layer ablation,srw_lsal_p2_mse_sizeaware_seed0,MISSING,default,MISSING,MISSING,,,,,,,,,,P2-only effect
+V2 size ablation,srw_lsal_p2p3_mse_no_sizeaware_seed0,MISSING,default,MISSING,MISSING,,,,,,,,,,Size-aware effect
+V2 optional,srw_lsal_p2p3_energy_bg_sizeaware_seed0,MISSING,default,MISSING,MISSING,,,,,,,,,,Optional after main V2

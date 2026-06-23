@@ -1,0 +1,40 @@
+ M README.md
+ M docs/README.md
+ M docs/handoffs/project_handoff_2026-06-21_phase14.md
+ M docs/project_handoff_2026-06-21.md
+ M docs/project_handoff_2026-06-21_phase14.md
+ M docs/roadmap.md
+ M docs/roadmap_vietnamese.md
+ M docs/teacher_safe_runs.md
+ M paper/tables/experiment_artifact_inventory.csv
+ M paper/tables/experiment_artifact_inventory.md
+ M paper/tables/model_selection_summary.csv
+ M paper/tables/model_selection_summary.md
+ M paper/tables/phase16_eval_summary.md
+ M scripts/12_train_srw_lsal.py
+ M src/models/layer_resolver.py
+ M src/trainers/srw_lsal_trainer.py
+ M src/training/multiscale_srw.py
+ M tests/test_multiscale_srw.py
+ M tests/test_srw_lsal_trainer.py
+?? artifacts/
+?? configs/skyfusion_v2_tiny_aware/
+?? docs/current_research_status_for_next_step.md
+?? docs/debug_tiny_recall_diagnosis_2026-06-23.md
+?? docs/experiment_design_v2_tiny_aware_srw_lsal.md
+?? docs/project_summary_2026-06-22.md
+?? docs/research_positioning_vietnamese.md
+?? docs/research_results_2026-06-23.md
+?? docs/runbooks/multiseed_ablation_plan.md
+?? docs/runbooks/run_v2_tiny_aware_experiments.md
+?? docs/runbooks/xai_ablation_eval.md
+?? final_artifacts/
+?? git_diff.patch
+?? git_status.txt
+?? git_status_before_v2_prep.txt
+?? repo_tree.txt
+?? research_review_2026_06_23.tar.gz
+?? scripts/20_plan_v2_tiny_aware_experiments.py
+?? scripts/99_pack_analysis_bundle.py
+?? tests/test_layer_resolver.py
+?? tests/test_v2_tiny_aware_configs.py

@@ -1,0 +1,5 @@
+cd96127 Make Kaggle eval notebook robust to missing evidence
+0cf4b0d Add Kaggle evaluation workflow and evidence tooling
+d4d7519 Organize evaluation outputs and summarize phase 16 results
+eb165e7 Add phase 14 experiment artifacts
+885eb41 Add phase 16 evaluation tooling
